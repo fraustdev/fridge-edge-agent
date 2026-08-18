@@ -35,6 +35,7 @@ func main() {
 	summarizer := copilot.NewSummarizer()
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/", dashboardHandler)
 	mux.Handle("/fleet/events", fleet.NewIngestHandler(store, dispatcher))
 	mux.Handle("/fleet/status", fleet.NewStatusHandler(store))
 	mux.Handle("/fleet/fridges/", fleet.NewFridgeDetailHandler(store))

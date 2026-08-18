@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fridge Fleet Ops</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #f6f5f1;
+    --panel: #ffffff;
+    --border: #e2ded4;
+    --text: #2a2b26;
+    --muted: #6b6a63;
+    --healthy: #3f7d4e;
+    --healthy-bg: #e6f2e8;
+    --low_stock: #a5760f;
+    --low_stock-bg: #fbf1dd;
+    --faulted: #b23b3b;
+    --faulted-bg: #fbe6e6;
+    --offline: #6b6a63;
+    --offline-bg: #ececea;
+    --accent: #3f7d4e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  header h1 { margin: 0; font-size: 20px; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  main { padding: 24px 28px 60px; max-width: 1100px; margin: 0 auto; }
+  section { margin-bottom: 32px; }
+  section h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .stat-card .n { font-size: 28px; font-weight: 600; }
+  .stat-card .label { font-size: 12px; color: var(--muted); text-transform: capitalize; }
+  .stat-card.healthy .n { color: var(--healthy); }
+  .stat-card.low_stock .n { color: var(--low_stock); }
+  .stat-card.faulted .n { color: var(--faulted); }
+  .stat-card.offline .n { color: var(--offline); }
+
+  .fridge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .fridge-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--offline);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  .fridge-card.healthy { border-left-color: var(--healthy); }
+  .fridge-card.low_stock { border-left-color: var(--low_stock); }
+  .fridge-card.faulted { border-left-color: var(--faulted); }
+  .fridge-card.offline { border-left-color: var(--offline); }
+  .fridge-card .id { font-weight: 600; }
+  .fridge-card .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .fridge-card .alert-badge {
+    display: inline-block;
+    margin-top: 6px;
+    font-size: 11px;
+    background: var(--faulted-bg);
+    color: var(--faulted);
+    padding: 1px 6px;
+    border-radius: 999px;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+  .badge.healthy, .badge.low { background: var(--healthy-bg); color: var(--healthy); }
+  .badge.low_stock, .badge.medium { background: var(--low_stock-bg); color: var(--low_stock); }
+  .badge.faulted, .badge.high, .badge.open { background: var(--faulted-bg); color: var(--faulted); }
+  .badge.offline, .badge.resolved { background: var(--offline-bg); color: var(--offline); }
+  .badge.assigned { background: #e5edf7; color: #2a5a94; }
+
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+  .tabs button {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .tabs button.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  tr:last-child td { border-bottom: none; }
+  .empty-row td { color: var(--muted); text-align: center; padding: 20px; }
+
+  button.action {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    margin-right: 4px;
+  }
+  button.action.secondary { background: #6b6a63; }
+  button.action:hover { opacity: 0.9; }
+
+  .copilot-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .copilot-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+  .source-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .source-badge.llm { background: var(--healthy-bg); color: var(--healthy); }
+  .source-badge.heuristic { background: var(--offline-bg); color: var(--offline); }
+  .narrative { font-size: 14px; line-height: 1.6; }
+  .narrative h4 { margin: 14px 0 4px; }
+  .narrative p { margin: 6px 0; }
+  .stats-line { color: var(--muted); font-size: 12px; margin-top: 10px; }
+
+  .refresh-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .refresh-btn:hover { background: var(--bg); }
+  .loading { color: var(--muted); font-size: 13px; font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fridge Fleet Ops</h1>
+  <div class="sub" id="lastUpdated">loading…</div>
+</header>
+<main>
+  <section>
+    <h2>Fleet Overview</h2>
+    <div class="stat-row" id="statRow"></div>
+  </section>
+
+  <section>
+    <h2>Fridges</h2>
+    <div class="fridge-grid" id="fridgeGrid"></div>
+  </section>
+
+  <section>
+    <h2>Alerts</h2>
+    <div class="tabs" id="alertTabs">
+      <button data-status="" class="active">All</button>
+      <button data-status="open">Open</button>
+      <button data-status="assigned">Assigned</button>
+      <button data-status="resolved">Resolved</button>
+    </div>
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Fridge</th><th>Slot</th><th>Source</th><th>Severity</th><th>Status</th><th>Assigned To</th><th>Created</th><th></th></tr>
+      </thead>
+      <tbody id="alertRows"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Ops Copilot Summary</h2>
+    <div class="copilot-panel">
+      <div class="copilot-header">
+        <span id="sourceBadge"></span>
+        <button class="refresh-btn" id="copilotRefresh">Regenerate summary</button>
+      </div>
+      <div id="copilotBody" class="loading">Not loaded yet — click "Regenerate summary".</div>
+      <div class="stats-line" id="copilotStats"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const STATUS_ORDER = ["healthy", "low_stock", "faulted", "offline"];
+let currentAlertFilter = "";
+
+function timeAgo(iso) {
+  const d = new Date(iso);
+  const secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+  if (secs < 60) return secs + "s ago";
+  if (secs < 3600) return Math.floor(secs / 60) + "m ago";
+  if (secs < 86400) return Math.floor(secs / 3600) + "h ago";
+  return Math.floor(secs / 86400) + "d ago";
+}
+
+async function refreshStatus() {
+  const res = await fetch("/fleet/status");
+  if (!res.ok) return;
+  const data = await res.json();
+
+  const statRow = document.getElementById("statRow");
+  statRow.innerHTML = STATUS_ORDER.map(s => `
+    <div class="stat-card ${s}">
+      <div class="n">${data.counts[s] || 0}</div>
+      <div class="label">${s.replace("_", " ")}</div>
+    </div>
+  `).join("");
+
+  const grid = document.getElementById("fridgeGrid");
+  const fridges = (data.fridges || []).slice().sort((a, b) => a.id.localeCompare(b.id));
+  grid.innerHTML = fridges.map(f => `
+    <div class="fridge-card ${f.status}">
+      <div class="id">${f.id}</div>
+      <div class="meta">${f.status.replace("_", " ")} · ${timeAgo(f.lastEventAt)}</div>
+      ${f.openAlertIds && f.openAlertIds.length ? `<div class="alert-badge">${f.openAlertIds.length} open alert${f.openAlertIds.length > 1 ? "s" : ""}</div>` : ""}
+    </div>
+  `).join("") || `<div class="loading">No fridges reporting yet — start cmd/fridge-sim.</div>`;
+
+  document.getElementById("lastUpdated").textContent = "updated " + new Date(data.generatedAt).toLocaleTimeString();
+}
+
+async function refreshAlerts() {
+  const url = "/fleet/alerts" + (currentAlertFilter ? "?status=" + currentAlertFilter : "");
+  const res = await fetch(url);
+  if (!res.ok) return;
+  const alerts = (await res.json()) || [];
+
+  const rows = document.getElementById("alertRows");
+  if (!alerts.length) {
+    rows.innerHTML = `<tr class="empty-row"><td colspan="9">No alerts here.</td></tr>`;
+    return;
+  }
+  rows.innerHTML = alerts.map(a => `
+    <tr>
+      <td>${a.id}</td>
+      <td>${a.fridgeId}</td>
+      <td>${a.slotId || "—"}</td>
+      <td>${a.sourceEvent}</td>
+      <td><span class="badge ${a.severity}">${a.severity}</span></td>
+      <td><span class="badge ${a.status}">${a.status}</span></td>
+      <td>${a.assignedTo || "—"}</td>
+      <td>${timeAgo(a.createdAt)}</td>
+      <td>
+        ${a.status === "open" ? `<button class="action" onclick="assignAlert(${a.id})">Assign</button>` : ""}
+        ${a.status === "assigned" ? `<button class="action secondary" onclick="resolveAlert(${a.id})">Resolve</button>` : ""}
+      </td>
+    </tr>
+  `).join("");
+}
+
+async function assignAlert(id) {
+  await fetch(`/fleet/alerts/${id}/assign`, { method: "POST" });
+  refreshAlerts();
+  refreshStatus();
+}
+
+async function resolveAlert(id) {
+  await fetch(`/fleet/alerts/${id}/resolve`, { method: "POST" });
+  refreshAlerts();
+  refreshStatus();
+}
+
+function renderNarrative(text) {
+  const lines = (text || "").split("\n");
+  let html = "";
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    if (line.startsWith("# ")) {
+      html += `<h4>${line.slice(2)}</h4>`;
+    } else {
+      html += `<p>${line.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</p>`;
+    }
+  }
+  return html;
+}
+
+async function refreshCopilot() {
+  const body = document.getElementById("copilotBody");
+  const stats = document.getElementById("copilotStats");
+  const badge = document.getElementById("sourceBadge");
+  body.textContent = "Generating summary…";
+  body.className = "loading";
+  stats.textContent = "";
+  badge.textContent = "";
+
+  try {
+    const res = await fetch("/fleet/copilot/summary");
+    const data = await res.json();
+    body.className = "narrative";
+    body.innerHTML = renderNarrative(data.Narrative);
+    badge.textContent = data.Source === "llm" ? "LLM" : "Heuristic fallback";
+    badge.className = "source-badge " + (data.Source === "llm" ? "llm" : "heuristic");
+    stats.textContent = `${data.TotalEvents} events · ${data.FridgesAffected} fridges · ` +
+      `${data.HardwareFaults} hardware faults · ${data.RestockAlerts} restock alerts · ` +
+      `${data.DoorAnomalies} door anomalies · ${data.ChargedNoItemCount} charged-no-item cases · ` +
+      `generated ${new Date(data.GeneratedAt).toLocaleTimeString()}`;
+  } catch (e) {
+    body.textContent = "Failed to load summary: " + e;
+  }
+}
+
+document.getElementById("alertTabs").addEventListener("click", (e) => {
+  if (e.target.tagName !== "BUTTON") return;
+  document.querySelectorAll("#alertTabs button").forEach(b => b.classList.remove("active"));
+  e.target.classList.add("active");
+  currentAlertFilter = e.target.dataset.status;
+  refreshAlerts();
+});
+
+document.getElementById("copilotRefresh").addEventListener("click", refreshCopilot);
+
+refreshStatus();
+refreshAlerts();
+setInterval(refreshStatus, 5000);
+setInterval(refreshAlerts, 5000);
+</script>
+</body>
+</html>

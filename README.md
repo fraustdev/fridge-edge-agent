@@ -42,7 +42,13 @@ go run ./cmd/fleet-server
 go run ./cmd/fridge-sim -fridges 10 -transactions 20
 ```
 
-Then poke the read side:
+Then open **http://localhost:8080** for a live read/write dashboard — fleet
+overview, per-fridge grid, alerts you can assign/resolve by clicking, and an
+"Regenerate summary" button for the copilot narrative. It's a single static
+page (`cmd/fleet-server/dashboard.html`, embedded via `go:embed`) calling the
+same JSON endpoints below — no build step, no separate frontend project.
+
+Or poke the read side directly:
 
 ```bash
 curl http://localhost:8080/fleet/status               # fleet-wide view
@@ -62,6 +68,7 @@ carrying over v1's "no API key needed" fallback behavior).
 
 | Method | Path | Purpose |
 |---|---|---|
+| `GET` | `/` | Static ops dashboard (HTML/JS, calls the endpoints below) |
 | `POST` | `/fleet/events` | A fridge reports a vend completion, restock alert, hardware fault, or door anomaly |
 | `GET` | `/fleet/status` | Fleet-wide health: healthy / low-stock / faulted / offline counts and per-fridge summary |
 | `GET` | `/fleet/fridges/{id}` | One fridge's recent events, open alerts, and current status |
@@ -118,8 +125,8 @@ from an ordinary failure in the published event.
 ## Explicitly out of scope (see SPEC.md for the full list and why)
 
 - Real hardware drivers — still simulated.
-- Auth / production security hardening.
-- A dashboard UI — this is API-only; a thin dashboard is a stretch goal.
+- Auth / production security hardening — the dashboard and API are both
+  unauthenticated, fine for a local demo, not for a real deployment.
 - Sophisticated dispatch optimization — round-robin assignment is a
   deliberate stand-in for a real routing algorithm.
 - Postgres / cloud deployment — SQLite is the demo store; Postgres is a
