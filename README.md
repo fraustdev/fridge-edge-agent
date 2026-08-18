@@ -50,10 +50,14 @@ copilot narrative. It's a single static page
 (`cmd/fleet-server/dashboard.html`, embedded via `go:embed`) calling the same
 JSON endpoints below — no build step, no separate frontend project.
 
-`cmd/fridge-sim` pins each simulated fridge to one of 20 real US cities (see
-`usCities` in `cmd/fridge-sim/main.go`) purely for the map view — location
-plays no role in any vend/dispatch/alerting logic, it's cosmetic context for
-a fleet that's actually spread across the country.
+`cmd/fridge-sim` pins each simulated fridge to one of Farmer's Fridge's own
+publicly reported airport locations (`usAirports` in
+`cmd/fridge-sim/main.go` — sourced from their airport-locations blog post
+plus Fast Company/Fast Casual reporting, checked 2026-08-18; not invented,
+though it's a snapshot of public reporting, not a live feed of their actual
+fleet). 25 airports across 19 states, matching the "20 states" figure in
+SPEC.md's evidence section. Location plays no role in any
+vend/dispatch/alerting logic — it's cosmetic context for the map view.
 
 Or poke the read side directly:
 

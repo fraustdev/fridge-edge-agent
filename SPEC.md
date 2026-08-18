@@ -113,6 +113,14 @@ workflow lacked.
   `dispenser.Simulator` + `vend.Machine`), drives semi-random transactions
   and occasional injected failures, and POSTs the resulting events to the
   fleet backend. This replaces the v1 CLI demo.
+- Each simulated fridge is pinned to a real Farmer's Fridge airport
+  location (`usAirports` in `cmd/fridge-sim/main.go`) — sourced from
+  Farmer's Fridge's own airport-locations blog post plus corroborating
+  Fast Company / Fast Casual reporting (checked 2026-08-18), not invented.
+  It's a snapshot of public reporting, not their live fleet, and it's used
+  purely for the dashboard's map view — no vend/dispatch logic depends on
+  it. The 25 airports span 19 states, consistent with the "3,000+
+  locations across 20 states" figure cited above.
 
 ## Explicitly out of scope
 

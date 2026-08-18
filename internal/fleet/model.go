@@ -42,10 +42,11 @@ const (
 // it — but a national fleet is easier to make sense of on a map than in a
 // flat list.
 type Location struct {
-	City  string  `json:"city"`
-	State string  `json:"state"`
-	Lat   float64 `json:"lat"`
-	Lng   float64 `json:"lng"`
+	City    string  `json:"city"`
+	State   string  `json:"state"`
+	Airport string  `json:"airport,omitempty"`
+	Lat     float64 `json:"lat"`
+	Lng     float64 `json:"lng"`
 }
 
 // Fridge is the current known state of one fridge.

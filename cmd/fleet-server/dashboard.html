@@ -373,8 +373,9 @@ function renderMap(fridges) {
   }
   wrap.innerHTML = withLoc.map(f => {
     const p = projectToMap(f.location.lat, f.location.lng);
+    const label = f.location.airport ? `${f.location.airport} &middot; ${f.location.city}, ${f.location.state}` : `${f.location.city}, ${f.location.state}`;
     return `<div class="map-pin ${f.status}" style="left:${p.x}%; top:${p.y}%;"
-                data-fridge="${f.id}" data-city="${f.location.city}, ${f.location.state}" data-status="${f.status}"></div>`;
+                data-fridge="${f.id}" data-city="${label}" data-status="${f.status}"></div>`;
   }).join("");
 
   let tooltip = null;
@@ -418,7 +419,7 @@ async function refreshStatus() {
       <div>
         <div class="id">${f.id}</div>
         <div class="meta">${f.status.replace("_", " ")} &middot; ${timeAgo(f.lastEventAt)}</div>
-        ${f.location ? `<div class="loc">${f.location.city}, ${f.location.state}</div>` : ""}
+        ${f.location ? `<div class="loc">${f.location.airport ? f.location.airport + " &middot; " : ""}${f.location.city}, ${f.location.state}</div>` : ""}
         ${f.openAlertIds && f.openAlertIds.length ? `<div class="alert-badge">${f.openAlertIds.length} open alert${f.openAlertIds.length > 1 ? "s" : ""}</div>` : ""}
       </div>
     </div>

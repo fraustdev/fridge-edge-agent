@@ -41,7 +41,7 @@ func main() {
 
 	for i := 0; i < *fridgeCount; i++ {
 		fridgeID := fmt.Sprintf("fridge-%03d", i+1)
-		publisher.locations[fridgeID] = usCities[i%len(usCities)]
+		publisher.locations[fridgeID] = usAirports[i%len(usAirports)]
 		sim := dispenser.NewSimulator(map[string]int{
 			"A1": 20, "A2": 20, "A3": 20, "B1": 20, "B2": 20,
 		})
@@ -93,35 +93,46 @@ func main() {
 // location is a simulated fridge's real-world placement, purely for the
 // fleet dashboard's map view — it plays no role in vend/dispatch logic.
 type location struct {
-	City  string  `json:"city"`
-	State string  `json:"state"`
-	Lat   float64 `json:"lat"`
-	Lng   float64 `json:"lng"`
+	City    string  `json:"city"`
+	State   string  `json:"state"`
+	Airport string  `json:"airport,omitempty"`
+	Lat     float64 `json:"lat"`
+	Lng     float64 `json:"lng"`
 }
 
-// usCities stands in for the 20-state footprint described in SPEC.md.
-// Each simulated fridge is pinned to one of these round-robin.
-var usCities = []location{
-	{"Chicago", "IL", 41.8781, -87.6298},
-	{"New York", "NY", 40.7128, -74.0060},
-	{"Los Angeles", "CA", 34.0522, -118.2437},
-	{"Boston", "MA", 42.3601, -71.0589},
-	{"Washington", "DC", 38.9072, -77.0369},
-	{"Philadelphia", "PA", 39.9526, -75.1652},
-	{"Dallas", "TX", 32.7767, -96.7970},
-	{"Houston", "TX", 29.7604, -95.3698},
-	{"Atlanta", "GA", 33.7490, -84.3880},
-	{"Denver", "CO", 39.7392, -104.9903},
-	{"Seattle", "WA", 47.6062, -122.3321},
-	{"San Francisco", "CA", 37.7749, -122.4194},
-	{"Minneapolis", "MN", 44.9778, -93.2650},
-	{"Detroit", "MI", 42.3314, -83.0458},
-	{"Charlotte", "NC", 35.2271, -80.8431},
-	{"Nashville", "TN", 36.1627, -86.7816},
-	{"Phoenix", "AZ", 33.4484, -112.0740},
-	{"Columbus", "OH", 39.9612, -82.9988},
-	{"Milwaukee", "WI", 43.0389, -87.9065},
-	{"Indianapolis", "IN", 39.7684, -86.1581},
+// usAirports is Farmer's Fridge's own publicly reported airport footprint,
+// not an invented city list — sourced from farmersfridge.com/blog/airport-locations/
+// and corroborating reporting (Fast Company, Fast Casual), checked 2026-08-18.
+// It's a snapshot of public reporting, not a live feed of their real fleet,
+// and airport terminal coordinates are approximate. Each simulated fridge is
+// pinned to one of these round-robin — multiple fridges landing on the same
+// airport is realistic (Farmer's Fridge runs several units per terminal).
+var usAirports = []location{
+	{"Chicago", "IL", "ORD", 41.9742, -87.9073},
+	{"Chicago", "IL", "MDW", 41.7868, -87.7522},
+	{"Minneapolis", "MN", "MSP", 44.8848, -93.2223},
+	{"Milwaukee", "WI", "MKE", 42.9472, -87.8966},
+	{"Cincinnati", "KY", "CVG", 39.0533, -84.6630},
+	{"Columbus", "OH", "CMH", 39.9980, -82.8919},
+	{"Indianapolis", "IN", "IND", 39.7173, -86.2944},
+	{"St. Louis", "MO", "STL", 38.7487, -90.3700},
+	{"Newark", "NJ", "EWR", 40.6895, -74.1745},
+	{"New York", "NY", "JFK", 40.6413, -73.7781},
+	{"New York", "NY", "LGA", 40.7769, -73.8740},
+	{"Philadelphia", "PA", "PHL", 39.8744, -75.2424},
+	{"Boston", "MA", "BOS", 42.3656, -71.0096},
+	{"Washington", "DC", "DCA", 38.8512, -77.0402},
+	{"Washington", "VA", "IAD", 38.9531, -77.4565},
+	{"Baltimore", "MD", "BWI", 39.1774, -76.6684},
+	{"Nashville", "TN", "BNA", 36.1263, -86.6774},
+	{"Houston", "TX", "IAH", 29.9902, -95.3368},
+	{"Dallas", "TX", "DFW", 32.8998, -97.0403},
+	{"Dallas", "TX", "DAL", 32.8471, -96.8518},
+	{"Austin", "TX", "AUS", 30.1975, -97.6664},
+	{"Los Angeles", "CA", "LAX", 33.9416, -118.4085},
+	{"Ontario", "CA", "ONT", 34.0559, -117.6011},
+	{"Atlanta", "GA", "ATL", 33.6407, -84.4277},
+	{"Las Vegas", "NV", "LAS", 36.0840, -115.1537},
 }
 
 func injectRandomFault(sim *dispenser.Simulator, slot string, rng *rand.Rand) {
