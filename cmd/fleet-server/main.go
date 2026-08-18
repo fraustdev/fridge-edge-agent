@@ -36,6 +36,8 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", dashboardHandler)
+	mux.HandleFunc("/static/leaflet.js", leafletJSHandler)
+	mux.HandleFunc("/static/leaflet.css", leafletCSSHandler)
 	mux.Handle("/fleet/events", fleet.NewIngestHandler(store, dispatcher))
 	mux.Handle("/fleet/status", fleet.NewStatusHandler(store))
 	mux.Handle("/fleet/fridges/", fleet.NewFridgeDetailHandler(store))

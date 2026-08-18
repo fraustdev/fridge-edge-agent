@@ -96,7 +96,7 @@
   .stat-card.faulted .n { color: var(--faulted); }
   .stat-card.offline .n { color: var(--offline); }
 
-  /* --- Map --- */
+  /* --- Map (Leaflet + OpenStreetMap tiles) --- */
   .map-card {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -104,72 +104,45 @@
     box-shadow: var(--shadow);
     padding: 16px;
   }
-  .map-wrap {
-    position: relative;
+  .map-card .map-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px; flex-wrap: wrap; gap: 8px;
+  }
+  .map-card .map-count { font-size: 12.5px; color: var(--muted); }
+  #leafletMap {
     width: 100%;
-    aspect-ratio: 16 / 9;
+    height: 520px;
     border-radius: 10px;
-    overflow: hidden;
-    background:
-      radial-gradient(circle at 20% 20%, rgba(31,109,67,0.06), transparent 40%),
-      radial-gradient(circle at 80% 70%, rgba(26,143,107,0.06), transparent 40%),
-      linear-gradient(180deg, #f7faf5, #eef3ea);
-    background-size: 22px 22px, 22px 22px, 100% 100%;
+    background: #eef3ea; /* shows while tiles load */
   }
-  .map-wrap::before {
-    content: "";
-    position: absolute; inset: 0;
-    background-image: radial-gradient(circle, rgba(34,48,38,0.08) 1px, transparent 1px);
-    background-size: 26px 26px;
-    pointer-events: none;
-  }
-  .map-pin {
-    position: absolute;
-    width: 13px; height: 13px;
+  .fridge-marker {
+    width: 14px; height: 14px;
     border-radius: 50%;
-    transform: translate(-50%, -50%);
     border: 2px solid white;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
-    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.35);
   }
-  .map-pin.healthy { background: var(--healthy); }
-  .map-pin.low_stock { background: var(--low_stock); }
-  .map-pin.offline { background: var(--offline); }
-  .map-pin.faulted {
+  .fridge-marker.healthy { background: var(--healthy); }
+  .fridge-marker.low_stock { background: var(--low_stock); }
+  .fridge-marker.offline { background: var(--offline); }
+  .fridge-marker.faulted {
     background: var(--faulted);
     animation: pin-pulse 1.4s infinite;
   }
   @keyframes pin-pulse {
-    0% { box-shadow: 0 0 0 0 rgba(217,67,47,0.55), 0 1px 3px rgba(0,0,0,0.25); }
-    70% { box-shadow: 0 0 0 9px rgba(217,67,47,0), 0 1px 3px rgba(0,0,0,0.25); }
-    100% { box-shadow: 0 0 0 0 rgba(217,67,47,0), 0 1px 3px rgba(0,0,0,0.25); }
+    0% { box-shadow: 0 0 0 0 rgba(217,67,47,0.55), 0 1px 3px rgba(0,0,0,0.35); }
+    70% { box-shadow: 0 0 0 9px rgba(217,67,47,0), 0 1px 3px rgba(0,0,0,0.35); }
+    100% { box-shadow: 0 0 0 0 rgba(217,67,47,0), 0 1px 3px rgba(0,0,0,0.35); }
   }
-  .map-tooltip {
-    position: absolute;
-    transform: translate(-50%, -130%);
-    background: #1d2b22;
-    color: white;
-    font-size: 12px;
-    padding: 6px 10px;
-    border-radius: 8px;
-    white-space: nowrap;
-    pointer-events: none;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-    z-index: 5;
-  }
-  .map-tooltip .t-fridge { font-weight: 700; }
-  .map-tooltip .t-status { text-transform: capitalize; opacity: 0.85; }
+  .leaflet-popup-content-wrapper { border-radius: 10px; }
+  .leaflet-popup-content { font-size: 13px; line-height: 1.5; margin: 10px 12px; }
+  .popup-title { font-weight: 700; margin-bottom: 2px; }
+  .popup-sub { color: var(--muted); font-size: 12px; }
   .map-legend {
     display: flex; gap: 16px; flex-wrap: wrap;
     margin-top: 10px; font-size: 12px; color: var(--muted);
   }
   .map-legend span { display: inline-flex; align-items: center; gap: 5px; }
   .map-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-  .map-empty {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--muted); font-size: 13px; font-style: italic;
-  }
 
   .fridge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
   .fridge-card {
@@ -279,6 +252,7 @@
   .refresh-btn:hover { background: var(--bg); }
   .loading { color: var(--muted); font-size: 13px; font-style: italic; }
 </style>
+<link rel="stylesheet" href="/static/leaflet.css">
 </head>
 <body>
 <header>
@@ -297,7 +271,11 @@
   <section>
     <h2>Fleet Map</h2>
     <div class="map-card">
-      <div class="map-wrap" id="mapWrap"></div>
+      <div class="map-toolbar">
+        <span class="map-count" id="mapCount">loading…</span>
+        <span class="map-count">scroll/pinch to zoom, drag to pan</span>
+      </div>
+      <div id="leafletMap"></div>
       <div class="map-legend">
         <span><i style="background:var(--healthy)"></i> Healthy</span>
         <span><i style="background:var(--low_stock)"></i> Low stock</span>
@@ -341,13 +319,23 @@
   </section>
 </main>
 
+<script src="/static/leaflet.js"></script>
 <script>
 const STATUS_ORDER = ["healthy", "low_stock", "faulted", "offline"];
 const STATUS_ICON = { healthy: "✅", low_stock: "⚠️", faulted: "❌", offline: "📴" };
 let currentAlertFilter = "";
 
-// Continental US bounding box for the map projection (Alaska/Hawaii excluded).
-const MAP_BOUNDS = { minLat: 24, maxLat: 49, minLng: -125, maxLng: -67 };
+let leafletMap = null;
+let markerLayer = null;
+
+function initMap() {
+  leafletMap = L.map("leafletMap", { worldCopyJump: true }).setView([39.5, -98.35], 4);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 18,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(leafletMap);
+  markerLayer = L.layerGroup().addTo(leafletMap);
+}
 
 function timeAgo(iso) {
   const d = new Date(iso);
@@ -358,39 +346,32 @@ function timeAgo(iso) {
   return Math.floor(secs / 86400) + "d ago";
 }
 
-function projectToMap(lat, lng) {
-  const x = ((lng - MAP_BOUNDS.minLng) / (MAP_BOUNDS.maxLng - MAP_BOUNDS.minLng)) * 100;
-  const y = ((MAP_BOUNDS.maxLat - lat) / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) * 100;
-  return { x: Math.min(98, Math.max(2, x)), y: Math.min(96, Math.max(4, y)) };
-}
-
 function renderMap(fridges) {
-  const wrap = document.getElementById("mapWrap");
-  const withLoc = fridges.filter(f => f.location);
-  if (!withLoc.length) {
-    wrap.innerHTML = `<div class="map-empty">No fridge locations reported yet — run cmd/fridge-sim.</div>`;
-    return;
-  }
-  wrap.innerHTML = withLoc.map(f => {
-    const p = projectToMap(f.location.lat, f.location.lng);
-    const label = f.location.airport ? `${f.location.airport} &middot; ${f.location.city}, ${f.location.state}` : `${f.location.city}, ${f.location.state}`;
-    return `<div class="map-pin ${f.status}" style="left:${p.x}%; top:${p.y}%;"
-                data-fridge="${f.id}" data-city="${label}" data-status="${f.status}"></div>`;
-  }).join("");
+  if (!leafletMap) initMap();
+  markerLayer.clearLayers();
 
-  let tooltip = null;
-  wrap.querySelectorAll(".map-pin").forEach(pin => {
-    pin.addEventListener("mouseenter", () => {
-      tooltip = document.createElement("div");
-      tooltip.className = "map-tooltip";
-      tooltip.innerHTML = `<div class="t-fridge">${pin.dataset.fridge} &middot; ${pin.dataset.city}</div><div class="t-status">${pin.dataset.status.replace("_", " ")}</div>`;
-      tooltip.style.left = pin.style.left;
-      tooltip.style.top = pin.style.top;
-      wrap.appendChild(tooltip);
+  const withLoc = fridges.filter(f => f.location);
+  document.getElementById("mapCount").textContent = withLoc.length
+    ? `${withLoc.length} fridge${withLoc.length === 1 ? "" : "s"} plotted`
+    : "no fridge locations reported yet — run cmd/fridge-sim";
+
+  withLoc.forEach(f => {
+    const icon = L.divIcon({
+      className: "",
+      html: `<div class="fridge-marker ${f.status}"></div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+      popupAnchor: [0, -8],
     });
-    pin.addEventListener("mouseleave", () => {
-      if (tooltip) { tooltip.remove(); tooltip = null; }
-    });
+    const loc = f.location;
+    const venue = loc.name || `${loc.city}, ${loc.state}`;
+    const marker = L.marker([loc.lat, loc.lng], { icon });
+    marker.bindPopup(`
+      <div class="popup-title">${f.id} &middot; ${f.status.replace("_", " ")}</div>
+      <div class="popup-sub">${venue}</div>
+      <div class="popup-sub">${loc.city}, ${loc.state}${loc.zip ? " " + loc.zip : ""}${loc.vertical ? " &middot; " + loc.vertical : ""}</div>
+    `);
+    markerLayer.addLayer(marker);
   });
 }
 
@@ -419,7 +400,7 @@ async function refreshStatus() {
       <div>
         <div class="id">${f.id}</div>
         <div class="meta">${f.status.replace("_", " ")} &middot; ${timeAgo(f.lastEventAt)}</div>
-        ${f.location ? `<div class="loc">${f.location.airport ? f.location.airport + " &middot; " : ""}${f.location.city}, ${f.location.state}</div>` : ""}
+        ${f.location ? `<div class="loc">${f.location.vertical ? "[" + f.location.vertical + "] " : ""}${f.location.city}, ${f.location.state}</div>` : ""}
         ${f.openAlertIds && f.openAlertIds.length ? `<div class="alert-badge">${f.openAlertIds.length} open alert${f.openAlertIds.length > 1 ? "s" : ""}</div>` : ""}
       </div>
     </div>

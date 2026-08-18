@@ -43,21 +43,35 @@ go run ./cmd/fridge-sim -fridges 10 -transactions 20
 ```
 
 Then open **http://localhost:8080** for a live read/write dashboard — fleet
-overview, a national map of simulated fridge locations (color-coded by
-status, pulsing red for faulted), per-fridge grid, alerts you can
-assign/resolve by clicking, and a "Regenerate summary" button for the
-copilot narrative. It's a single static page
-(`cmd/fleet-server/dashboard.html`, embedded via `go:embed`) calling the same
-JSON endpoints below — no build step, no separate frontend project.
+overview, a real zoomable/pannable US map (Leaflet + OpenStreetMap tiles) of
+simulated fridge locations color-coded by status and pulsing red for
+faulted, per-fridge grid, alerts you can assign/resolve by clicking, and a
+"Regenerate summary" button for the copilot narrative. It's a single static
+page (`cmd/fleet-server/dashboard.html`, embedded via `go:embed`) calling the
+same JSON endpoints below — no build step, no separate frontend project.
+Leaflet itself is vendored locally (`cmd/fleet-server/leaflet.js`/`.css`, BSD-
+2-Clause) so the dashboard doesn't depend on a CDN; the map *tiles* still
+come from OpenStreetMap over the network, since there's no reasonable way to
+vendor world imagery.
 
 `cmd/fridge-sim` pins each simulated fridge to one of Farmer's Fridge's own
-publicly reported airport locations (`usAirports` in
-`cmd/fridge-sim/main.go` — sourced from their airport-locations blog post
-plus Fast Company/Fast Casual reporting, checked 2026-08-18; not invented,
-though it's a snapshot of public reporting, not a live feed of their actual
-fleet). 25 airports across 19 states, matching the "20 states" figure in
-SPEC.md's evidence section. Location plays no role in any
-vend/dispatch/alerting logic — it's cosmetic context for the map view.
+**real, individual fridge locations** — 2,326 of them, with exact
+coordinates, address, and venue type (Airport/Healthcare/B&I/Office/
+Education/etc.) — pulled directly from the JSON payload that powers
+`farmersfridge.com/locations-map/` (their own Gatsby build's public
+page-data endpoint; the same data any visitor's browser downloads to render
+that page). Captured 2026-08-18, embedded at `cmd/fridge-sim/locations.json`.
+This is a snapshot of public reporting, not a live feed of their current
+fleet, and it plays no role in any vend/dispatch/alerting logic — it's
+cosmetic context for the map view. The dataset spans 22 states/DC, close to
+the "20 states" figure in SPEC.md's evidence section.
+
+Run `-fridges 2326` to place one simulated fridge at every real location in
+the dataset (confirmed working: the fleet-status endpoint correctly reports
+all 2,326, across all 22 states, in well under a minute). Smaller runs
+shuffle the pool first, so even `-fridges 10` gets a realistic geographic
+spread instead of landing on whatever order the source data happens to be
+in.
 
 Or poke the read side directly:
 

@@ -113,14 +113,18 @@ workflow lacked.
   `dispenser.Simulator` + `vend.Machine`), drives semi-random transactions
   and occasional injected failures, and POSTs the resulting events to the
   fleet backend. This replaces the v1 CLI demo.
-- Each simulated fridge is pinned to a real Farmer's Fridge airport
-  location (`usAirports` in `cmd/fridge-sim/main.go`) — sourced from
-  Farmer's Fridge's own airport-locations blog post plus corroborating
-  Fast Company / Fast Casual reporting (checked 2026-08-18), not invented.
-  It's a snapshot of public reporting, not their live fleet, and it's used
-  purely for the dashboard's map view — no vend/dispatch logic depends on
-  it. The 25 airports span 19 states, consistent with the "3,000+
-  locations across 20 states" figure cited above.
+- Each simulated fridge is pinned to one of Farmer's Fridge's own real,
+  individual fridge locations — 2,326 of them, with exact coordinates,
+  address, and venue type — embedded at `cmd/fridge-sim/locations.json`.
+  Pulled directly from the JSON payload that powers their own
+  `locations-map/` page (a public page-data endpoint from their Gatsby
+  build, the same data any visitor's browser downloads to render that
+  page), captured 2026-08-18. It's a snapshot of public reporting, not
+  their live fleet, and it's used purely for the dashboard's map view — no
+  vend/dispatch logic depends on it. The dataset spans 22 states/DC,
+  consistent with the "3,000+ locations across 20 states" figure cited
+  above. `go run ./cmd/fridge-sim -fridges 2326` places one simulated
+  fridge at every real location in the dataset.
 
 ## Explicitly out of scope
 
