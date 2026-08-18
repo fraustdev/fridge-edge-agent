@@ -31,8 +31,9 @@ func main() {
 
 	rng := rand.New(rand.NewSource(*seed))
 	publisher := &httpEventPublisher{
-		baseURL: *serverURL,
-		client:  &http.Client{Timeout: 5 * time.Second},
+		baseURL:   *serverURL,
+		client:    &http.Client{Timeout: 5 * time.Second},
+		locations: map[string]location{},
 	}
 
 	var outcomes = map[vend.Outcome]int{}
@@ -40,6 +41,7 @@ func main() {
 
 	for i := 0; i < *fridgeCount; i++ {
 		fridgeID := fmt.Sprintf("fridge-%03d", i+1)
+		publisher.locations[fridgeID] = usCities[i%len(usCities)]
 		sim := dispenser.NewSimulator(map[string]int{
 			"A1": 20, "A2": 20, "A3": 20, "B1": 20, "B2": 20,
 		})
@@ -88,6 +90,40 @@ func main() {
 	}
 }
 
+// location is a simulated fridge's real-world placement, purely for the
+// fleet dashboard's map view — it plays no role in vend/dispatch logic.
+type location struct {
+	City  string  `json:"city"`
+	State string  `json:"state"`
+	Lat   float64 `json:"lat"`
+	Lng   float64 `json:"lng"`
+}
+
+// usCities stands in for the 20-state footprint described in SPEC.md.
+// Each simulated fridge is pinned to one of these round-robin.
+var usCities = []location{
+	{"Chicago", "IL", 41.8781, -87.6298},
+	{"New York", "NY", 40.7128, -74.0060},
+	{"Los Angeles", "CA", 34.0522, -118.2437},
+	{"Boston", "MA", 42.3601, -71.0589},
+	{"Washington", "DC", 38.9072, -77.0369},
+	{"Philadelphia", "PA", 39.9526, -75.1652},
+	{"Dallas", "TX", 32.7767, -96.7970},
+	{"Houston", "TX", 29.7604, -95.3698},
+	{"Atlanta", "GA", 33.7490, -84.3880},
+	{"Denver", "CO", 39.7392, -104.9903},
+	{"Seattle", "WA", 47.6062, -122.3321},
+	{"San Francisco", "CA", 37.7749, -122.4194},
+	{"Minneapolis", "MN", 44.9778, -93.2650},
+	{"Detroit", "MI", 42.3314, -83.0458},
+	{"Charlotte", "NC", 35.2271, -80.8431},
+	{"Nashville", "TN", 36.1627, -86.7816},
+	{"Phoenix", "AZ", 33.4484, -112.0740},
+	{"Columbus", "OH", 39.9612, -82.9988},
+	{"Milwaukee", "WI", 43.0389, -87.9065},
+	{"Indianapolis", "IN", 39.7684, -86.1581},
+}
+
 func injectRandomFault(sim *dispenser.Simulator, slot string, rng *rand.Rand) {
 	faults := []error{dispenser.ErrJam, dispenser.ErrTimeout, dispenser.ErrSensor}
 	sim.InjectFault(slot, faults[rng.Intn(len(faults))])
@@ -120,9 +156,10 @@ func (p *simulatedPaymentGateway) Refund(txnID string) error {
 // endpoint, translating vend's event shape into the wire format
 // fleet.IngestHandler expects.
 type httpEventPublisher struct {
-	baseURL  string
-	client   *http.Client
-	failures int
+	baseURL   string
+	client    *http.Client
+	failures  int
+	locations map[string]location
 }
 
 func (p *httpEventPublisher) Publish(e vend.Event) {
@@ -132,6 +169,7 @@ func (p *httpEventPublisher) Publish(e vend.Event) {
 		"type":      string(e.Type),
 		"timestamp": e.Timestamp,
 		"payload":   e.Payload,
+		"location":  p.locations[e.FridgeID],
 	})
 	if err != nil {
 		log.Printf("marshal event: %v", err)

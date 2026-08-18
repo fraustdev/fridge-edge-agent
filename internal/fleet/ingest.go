@@ -23,6 +23,7 @@ type ingestRequest struct {
 	Type      string         `json:"type"`
 	Timestamp time.Time      `json:"timestamp"`
 	Payload   map[string]any `json:"payload"`
+	Location  *Location      `json:"location,omitempty"`
 }
 
 type ingestResponse struct {
@@ -68,7 +69,7 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.updateFridgeState(ctx, event); err != nil {
+	if err := h.updateFridgeState(ctx, event, req.Location); err != nil {
 		http.Error(w, "failed to update fridge state: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -96,7 +97,7 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // faulted; a fault or low-stock state is not silently cleared by later
 // events (that requires an explicit restock/repair, which this demo does
 // not model) except a subsequent clean vend success.
-func (h *IngestHandler) updateFridgeState(ctx context.Context, e Event) error {
+func (h *IngestHandler) updateFridgeState(ctx context.Context, e Event, loc *Location) error {
 	current, err := h.Store.GetFridge(ctx, e.FridgeID)
 	if err != nil && err != ErrNotFound {
 		return err
@@ -107,6 +108,7 @@ func (h *IngestHandler) updateFridgeState(ctx context.Context, e Event) error {
 		ID:          e.FridgeID,
 		Status:      status,
 		LastEventAt: e.Timestamp,
+		Location:    loc,
 	})
 }
 

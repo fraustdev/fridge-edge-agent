@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -75,7 +76,11 @@ CREATE INDEX IF NOT EXISTS idx_events_fridge ON events(fridge_id, timestamp);
 CREATE TABLE IF NOT EXISTS fridges (
 	id TEXT PRIMARY KEY,
 	status TEXT NOT NULL,
-	last_event_at TEXT NOT NULL
+	last_event_at TEXT NOT NULL,
+	city TEXT,
+	state TEXT,
+	lat REAL,
+	lng REAL
 );
 
 CREATE TABLE IF NOT EXISTS alerts (
@@ -91,8 +96,20 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_fridge ON alerts(fridge_id, status);
 `
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+
+	// fridges predating the location columns won't get them from CREATE TABLE
+	// IF NOT EXISTS above, so add them explicitly, ignoring "already exists".
+	for _, col := range []string{"city TEXT", "state TEXT", "lat REAL", "lng REAL"} {
+		if _, err := s.db.Exec(`ALTER TABLE fridges ADD COLUMN ` + col); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column name") {
+				return fmt.Errorf("add fridges column %q: %w", col, err)
+			}
+		}
+	}
+	return nil
 }
 
 func (s *SQLiteStore) InsertEvent(ctx context.Context, e Event) (Event, error) {
@@ -162,10 +179,24 @@ func (s *SQLiteStore) ListRecentEvents(ctx context.Context, limit int) ([]Event,
 }
 
 func (s *SQLiteStore) UpsertFridge(ctx context.Context, f Fridge) error {
+	var city, state sql.NullString
+	var lat, lng sql.NullFloat64
+	if f.Location != nil {
+		city = sql.NullString{String: f.Location.City, Valid: true}
+		state = sql.NullString{String: f.Location.State, Valid: true}
+		lat = sql.NullFloat64{Float64: f.Location.Lat, Valid: true}
+		lng = sql.NullFloat64{Float64: f.Location.Lng, Valid: true}
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO fridges (id, status, last_event_at) VALUES (?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET status = excluded.status, last_event_at = excluded.last_event_at`,
-		f.ID, string(f.Status), f.LastEventAt.UTC().Format(time.RFC3339Nano))
+		`INSERT INTO fridges (id, status, last_event_at, city, state, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+		   status = excluded.status,
+		   last_event_at = excluded.last_event_at,
+		   city = COALESCE(excluded.city, fridges.city),
+		   state = COALESCE(excluded.state, fridges.state),
+		   lat = COALESCE(excluded.lat, fridges.lat),
+		   lng = COALESCE(excluded.lng, fridges.lng)`,
+		f.ID, string(f.Status), f.LastEventAt.UTC().Format(time.RFC3339Nano), city, state, lat, lng)
 	if err != nil {
 		return fmt.Errorf("upsert fridge: %w", err)
 	}
@@ -175,7 +206,9 @@ func (s *SQLiteStore) UpsertFridge(ctx context.Context, f Fridge) error {
 func (s *SQLiteStore) scanFridge(row *sql.Row) (Fridge, error) {
 	var f Fridge
 	var status, ts string
-	if err := row.Scan(&f.ID, &status, &ts); err != nil {
+	var city, state sql.NullString
+	var lat, lng sql.NullFloat64
+	if err := row.Scan(&f.ID, &status, &ts, &city, &state, &lat, &lng); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Fridge{}, ErrNotFound
 		}
@@ -187,11 +220,15 @@ func (s *SQLiteStore) scanFridge(row *sql.Row) (Fridge, error) {
 		return Fridge{}, fmt.Errorf("parse fridge timestamp: %w", err)
 	}
 	f.LastEventAt = parsedTS
+	if lat.Valid && lng.Valid {
+		f.Location = &Location{City: city.String, State: state.String, Lat: lat.Float64, Lng: lng.Float64}
+	}
 	return f, nil
 }
 
 func (s *SQLiteStore) GetFridge(ctx context.Context, id string) (Fridge, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, status, last_event_at FROM fridges WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, status, last_event_at, city, state, lat, lng FROM fridges WHERE id = ?`, id)
 	f, err := s.scanFridge(row)
 	if err != nil {
 		return Fridge{}, err
@@ -207,7 +244,7 @@ func (s *SQLiteStore) GetFridge(ctx context.Context, id string) (Fridge, error) 
 }
 
 func (s *SQLiteStore) ListFridges(ctx context.Context) ([]Fridge, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, status, last_event_at FROM fridges ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, status, last_event_at, city, state, lat, lng FROM fridges ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("query fridges: %w", err)
 	}
@@ -217,7 +254,9 @@ func (s *SQLiteStore) ListFridges(ctx context.Context) ([]Fridge, error) {
 	for rows.Next() {
 		var f Fridge
 		var status, ts string
-		if err := rows.Scan(&f.ID, &status, &ts); err != nil {
+		var city, state sql.NullString
+		var lat, lng sql.NullFloat64
+		if err := rows.Scan(&f.ID, &status, &ts, &city, &state, &lat, &lng); err != nil {
 			return nil, fmt.Errorf("scan fridge: %w", err)
 		}
 		f.Status = FridgeStatus(status)
@@ -226,6 +265,9 @@ func (s *SQLiteStore) ListFridges(ctx context.Context) ([]Fridge, error) {
 			return nil, fmt.Errorf("parse fridge timestamp: %w", err)
 		}
 		f.LastEventAt = parsedTS
+		if lat.Valid && lng.Valid {
+			f.Location = &Location{City: city.String, State: state.String, Lat: lat.Float64, Lng: lng.Float64}
+		}
 		fridges = append(fridges, f)
 	}
 	if err := rows.Err(); err != nil {

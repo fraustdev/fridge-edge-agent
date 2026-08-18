@@ -43,10 +43,17 @@ go run ./cmd/fridge-sim -fridges 10 -transactions 20
 ```
 
 Then open **http://localhost:8080** for a live read/write dashboard — fleet
-overview, per-fridge grid, alerts you can assign/resolve by clicking, and an
-"Regenerate summary" button for the copilot narrative. It's a single static
-page (`cmd/fleet-server/dashboard.html`, embedded via `go:embed`) calling the
-same JSON endpoints below — no build step, no separate frontend project.
+overview, a national map of simulated fridge locations (color-coded by
+status, pulsing red for faulted), per-fridge grid, alerts you can
+assign/resolve by clicking, and a "Regenerate summary" button for the
+copilot narrative. It's a single static page
+(`cmd/fleet-server/dashboard.html`, embedded via `go:embed`) calling the same
+JSON endpoints below — no build step, no separate frontend project.
+
+`cmd/fridge-sim` pins each simulated fridge to one of 20 real US cities (see
+`usCities` in `cmd/fridge-sim/main.go`) purely for the map view — location
+plays no role in any vend/dispatch/alerting logic, it's cosmetic context for
+a fleet that's actually spread across the country.
 
 Or poke the read side directly:
 

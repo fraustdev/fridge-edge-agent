@@ -53,6 +53,7 @@ type fridgeView struct {
 	Status       FridgeStatus `json:"status"`
 	LastEventAt  time.Time    `json:"lastEventAt"`
 	OpenAlertIDs []int64      `json:"openAlertIds,omitempty"`
+	Location     *Location    `json:"location,omitempty"`
 }
 
 // ServeHTTP handles GET /fleet/status: fleet-wide health view.
@@ -80,6 +81,7 @@ func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Status:       status,
 			LastEventAt:  f.LastEventAt,
 			OpenAlertIDs: f.OpenAlertIDs,
+			Location:     f.Location,
 		})
 	}
 
@@ -156,6 +158,7 @@ func (h *FridgeDetailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			Status:       status,
 			LastEventAt:  fridge.LastEventAt,
 			OpenAlertIDs: fridge.OpenAlertIDs,
+			Location:     fridge.Location,
 		},
 		RecentEvents: events,
 		OpenAlerts:   openAlerts,

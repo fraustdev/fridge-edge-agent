@@ -37,12 +37,24 @@ const (
 	StatusOffline  FridgeStatus = "offline"
 )
 
+// Location is a fridge's real-world placement. It's not used for anything
+// beyond display — the fleet-wide/per-fridge health logic never depends on
+// it — but a national fleet is easier to make sense of on a map than in a
+// flat list.
+type Location struct {
+	City  string  `json:"city"`
+	State string  `json:"state"`
+	Lat   float64 `json:"lat"`
+	Lng   float64 `json:"lng"`
+}
+
 // Fridge is the current known state of one fridge.
 type Fridge struct {
 	ID           string       `json:"id"`
 	Status       FridgeStatus `json:"status"`
 	LastEventAt  time.Time    `json:"lastEventAt"`
 	OpenAlertIDs []int64      `json:"openAlertIds,omitempty"`
+	Location     *Location    `json:"location,omitempty"`
 }
 
 // AlertStatus is where an alert sits in the dispatch lifecycle.

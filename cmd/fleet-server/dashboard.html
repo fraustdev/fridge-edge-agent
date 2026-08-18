@@ -6,20 +6,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root {
-    --bg: #f6f5f1;
+    --bg: #f4f6f2;
     --panel: #ffffff;
-    --border: #e2ded4;
-    --text: #2a2b26;
-    --muted: #6b6a63;
-    --healthy: #3f7d4e;
-    --healthy-bg: #e6f2e8;
-    --low_stock: #a5760f;
-    --low_stock-bg: #fbf1dd;
-    --faulted: #b23b3b;
-    --faulted-bg: #fbe6e6;
-    --offline: #6b6a63;
+    --border: #e2e6dc;
+    --text: #223026;
+    --muted: #6e7a6c;
+    --healthy: #2f9e5c;
+    --healthy-bg: #e3f6ea;
+    --low_stock: #c6890e;
+    --low_stock-bg: #fcf0da;
+    --faulted: #d9432f;
+    --faulted-bg: #fce6e2;
+    --offline: #7a7f77;
     --offline-bg: #ececea;
-    --accent: #3f7d4e;
+    --accent1: #1f6d43;
+    --accent2: #1a8f6b;
+    --shadow: 0 1px 2px rgba(30, 45, 30, 0.06), 0 4px 14px rgba(30, 45, 30, 0.05);
   }
   * { box-sizing: border-box; }
   body {
@@ -27,56 +29,168 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(31, 109, 67, 0.06), transparent 45%),
+      radial-gradient(circle at 85% 10%, rgba(26, 143, 107, 0.05), transparent 40%);
   }
   header {
-    padding: 20px 28px;
-    border-bottom: 1px solid var(--border);
+    padding: 26px 32px;
+    background: linear-gradient(120deg, var(--accent1), var(--accent2));
+    color: white;
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 10px;
+    box-shadow: var(--shadow);
   }
-  header h1 { margin: 0; font-size: 20px; }
-  header .sub { color: var(--muted); font-size: 13px; }
-  main { padding: 24px 28px 60px; max-width: 1100px; margin: 0 auto; }
-  section { margin-bottom: 32px; }
+  header .title-row { display: flex; align-items: center; gap: 12px; }
+  header .fridge-icon {
+    width: 34px; height: 34px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.18);
+    border-radius: 9px;
+    font-size: 18px;
+  }
+  header h1 { margin: 0; font-size: 21px; letter-spacing: -0.01em; }
+  header .sub { color: rgba(255,255,255,0.85); font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #7CF29C;
+    box-shadow: 0 0 0 rgba(124,242,156,0.6);
+    animation: pulse-dot 2s infinite;
+  }
+  @keyframes pulse-dot {
+    0% { box-shadow: 0 0 0 0 rgba(124,242,156,0.55); }
+    70% { box-shadow: 0 0 0 7px rgba(124,242,156,0); }
+    100% { box-shadow: 0 0 0 0 rgba(124,242,156,0); }
+  }
+
+  main { padding: 28px 32px 60px; max-width: 1160px; margin: 0 auto; }
+  section { margin-bottom: 34px; }
   section h2 {
-    font-size: 13px;
+    font-size: 12.5px;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     color: var(--muted);
     margin: 0 0 12px;
+    font-weight: 700;
   }
-  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
   .stat-card {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
+    border-radius: 12px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+    transition: transform 0.15s ease;
   }
-  .stat-card .n { font-size: 28px; font-weight: 600; }
-  .stat-card .label { font-size: 12px; color: var(--muted); text-transform: capitalize; }
+  .stat-card:hover { transform: translateY(-2px); }
+  .stat-card .top-row { display: flex; align-items: center; justify-content: space-between; }
+  .stat-card .n { font-size: 30px; font-weight: 700; line-height: 1; }
+  .stat-card .icon { font-size: 20px; opacity: 0.85; }
+  .stat-card .label { font-size: 12px; color: var(--muted); text-transform: capitalize; margin-top: 4px; }
   .stat-card.healthy .n { color: var(--healthy); }
   .stat-card.low_stock .n { color: var(--low_stock); }
   .stat-card.faulted .n { color: var(--faulted); }
   .stat-card.offline .n { color: var(--offline); }
 
-  .fridge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  /* --- Map --- */
+  .map-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 16px;
+  }
+  .map-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 10px;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(31,109,67,0.06), transparent 40%),
+      radial-gradient(circle at 80% 70%, rgba(26,143,107,0.06), transparent 40%),
+      linear-gradient(180deg, #f7faf5, #eef3ea);
+    background-size: 22px 22px, 22px 22px, 100% 100%;
+  }
+  .map-wrap::before {
+    content: "";
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, rgba(34,48,38,0.08) 1px, transparent 1px);
+    background-size: 26px 26px;
+    pointer-events: none;
+  }
+  .map-pin {
+    position: absolute;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    cursor: pointer;
+  }
+  .map-pin.healthy { background: var(--healthy); }
+  .map-pin.low_stock { background: var(--low_stock); }
+  .map-pin.offline { background: var(--offline); }
+  .map-pin.faulted {
+    background: var(--faulted);
+    animation: pin-pulse 1.4s infinite;
+  }
+  @keyframes pin-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(217,67,47,0.55), 0 1px 3px rgba(0,0,0,0.25); }
+    70% { box-shadow: 0 0 0 9px rgba(217,67,47,0), 0 1px 3px rgba(0,0,0,0.25); }
+    100% { box-shadow: 0 0 0 0 rgba(217,67,47,0), 0 1px 3px rgba(0,0,0,0.25); }
+  }
+  .map-tooltip {
+    position: absolute;
+    transform: translate(-50%, -130%);
+    background: #1d2b22;
+    color: white;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    z-index: 5;
+  }
+  .map-tooltip .t-fridge { font-weight: 700; }
+  .map-tooltip .t-status { text-transform: capitalize; opacity: 0.85; }
+  .map-legend {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    margin-top: 10px; font-size: 12px; color: var(--muted);
+  }
+  .map-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .map-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .map-empty {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 13px; font-style: italic;
+  }
+
+  .fridge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
   .fridge-card {
     background: var(--panel);
     border: 1px solid var(--border);
     border-left: 4px solid var(--offline);
-    border-radius: 8px;
-    padding: 10px 12px;
+    border-radius: 10px;
+    padding: 11px 13px;
     font-size: 13px;
+    box-shadow: var(--shadow);
+    display: flex;
+    gap: 8px;
   }
+  .fridge-card .glyph { font-size: 18px; line-height: 1; margin-top: 1px; }
   .fridge-card.healthy { border-left-color: var(--healthy); }
   .fridge-card.low_stock { border-left-color: var(--low_stock); }
   .fridge-card.faulted { border-left-color: var(--faulted); }
   .fridge-card.offline { border-left-color: var(--offline); }
-  .fridge-card .id { font-weight: 600; }
+  .fridge-card .id { font-weight: 700; }
   .fridge-card .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .fridge-card .loc { color: var(--muted); font-size: 11px; }
   .fridge-card .alert-badge {
     display: inline-block;
     margin-top: 6px;
@@ -85,14 +199,15 @@
     color: var(--faulted);
     padding: 1px 6px;
     border-radius: 999px;
+    font-weight: 600;
   }
 
   .badge {
     display: inline-block;
-    padding: 2px 8px;
+    padding: 2px 9px;
     border-radius: 999px;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
     text-transform: capitalize;
   }
   .badge.healthy, .badge.low { background: var(--healthy-bg); color: var(--healthy); }
@@ -110,36 +225,40 @@
     font-size: 12px;
     cursor: pointer;
     color: var(--muted);
+    font-weight: 600;
   }
-  .tabs button.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .tabs button.active { background: var(--accent1); color: white; border-color: var(--accent1); }
 
-  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
   th, td { text-align: left; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  th { color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase; }
   tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #fafcf8; }
   .empty-row td { color: var(--muted); text-align: center; padding: 20px; }
 
   button.action {
-    background: var(--accent);
+    background: var(--accent1);
     color: white;
     border: none;
-    border-radius: 6px;
-    padding: 5px 10px;
+    border-radius: 7px;
+    padding: 5px 11px;
     font-size: 12px;
     cursor: pointer;
     margin-right: 4px;
+    font-weight: 600;
   }
   button.action.secondary { background: #6b6a63; }
-  button.action:hover { opacity: 0.9; }
+  button.action:hover { opacity: 0.88; }
 
   .copilot-panel {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 14px;
     padding: 18px 20px;
+    box-shadow: var(--shadow);
   }
   .copilot-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
-  .source-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .source-badge { font-size: 11px; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; }
   .source-badge.llm { background: var(--healthy-bg); color: var(--healthy); }
   .source-badge.heuristic { background: var(--offline-bg); color: var(--offline); }
   .narrative { font-size: 14px; line-height: 1.6; }
@@ -150,11 +269,12 @@
   .refresh-btn {
     background: none;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 7px;
     padding: 5px 12px;
     font-size: 12px;
     cursor: pointer;
     color: var(--text);
+    font-weight: 600;
   }
   .refresh-btn:hover { background: var(--bg); }
   .loading { color: var(--muted); font-size: 13px; font-style: italic; }
@@ -162,13 +282,29 @@
 </head>
 <body>
 <header>
-  <h1>Fridge Fleet Ops</h1>
-  <div class="sub" id="lastUpdated">loading…</div>
+  <div class="title-row">
+    <div class="fridge-icon">&#129466;</div>
+    <h1>Fridge Fleet Ops</h1>
+  </div>
+  <div class="sub"><span class="live-dot"></span><span id="lastUpdated">loading…</span></div>
 </header>
 <main>
   <section>
     <h2>Fleet Overview</h2>
     <div class="stat-row" id="statRow"></div>
+  </section>
+
+  <section>
+    <h2>Fleet Map</h2>
+    <div class="map-card">
+      <div class="map-wrap" id="mapWrap"></div>
+      <div class="map-legend">
+        <span><i style="background:var(--healthy)"></i> Healthy</span>
+        <span><i style="background:var(--low_stock)"></i> Low stock</span>
+        <span><i style="background:var(--faulted)"></i> Faulted (pulsing)</span>
+        <span><i style="background:var(--offline)"></i> Offline</span>
+      </div>
+    </div>
   </section>
 
   <section>
@@ -207,7 +343,11 @@
 
 <script>
 const STATUS_ORDER = ["healthy", "low_stock", "faulted", "offline"];
+const STATUS_ICON = { healthy: "✅", low_stock: "⚠️", faulted: "❌", offline: "📴" };
 let currentAlertFilter = "";
+
+// Continental US bounding box for the map projection (Alaska/Hawaii excluded).
+const MAP_BOUNDS = { minLat: 24, maxLat: 49, minLng: -125, maxLng: -67 };
 
 function timeAgo(iso) {
   const d = new Date(iso);
@@ -218,6 +358,41 @@ function timeAgo(iso) {
   return Math.floor(secs / 86400) + "d ago";
 }
 
+function projectToMap(lat, lng) {
+  const x = ((lng - MAP_BOUNDS.minLng) / (MAP_BOUNDS.maxLng - MAP_BOUNDS.minLng)) * 100;
+  const y = ((MAP_BOUNDS.maxLat - lat) / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) * 100;
+  return { x: Math.min(98, Math.max(2, x)), y: Math.min(96, Math.max(4, y)) };
+}
+
+function renderMap(fridges) {
+  const wrap = document.getElementById("mapWrap");
+  const withLoc = fridges.filter(f => f.location);
+  if (!withLoc.length) {
+    wrap.innerHTML = `<div class="map-empty">No fridge locations reported yet — run cmd/fridge-sim.</div>`;
+    return;
+  }
+  wrap.innerHTML = withLoc.map(f => {
+    const p = projectToMap(f.location.lat, f.location.lng);
+    return `<div class="map-pin ${f.status}" style="left:${p.x}%; top:${p.y}%;"
+                data-fridge="${f.id}" data-city="${f.location.city}, ${f.location.state}" data-status="${f.status}"></div>`;
+  }).join("");
+
+  let tooltip = null;
+  wrap.querySelectorAll(".map-pin").forEach(pin => {
+    pin.addEventListener("mouseenter", () => {
+      tooltip = document.createElement("div");
+      tooltip.className = "map-tooltip";
+      tooltip.innerHTML = `<div class="t-fridge">${pin.dataset.fridge} &middot; ${pin.dataset.city}</div><div class="t-status">${pin.dataset.status.replace("_", " ")}</div>`;
+      tooltip.style.left = pin.style.left;
+      tooltip.style.top = pin.style.top;
+      wrap.appendChild(tooltip);
+    });
+    pin.addEventListener("mouseleave", () => {
+      if (tooltip) { tooltip.remove(); tooltip = null; }
+    });
+  });
+}
+
 async function refreshStatus() {
   const res = await fetch("/fleet/status");
   if (!res.ok) return;
@@ -226,20 +401,30 @@ async function refreshStatus() {
   const statRow = document.getElementById("statRow");
   statRow.innerHTML = STATUS_ORDER.map(s => `
     <div class="stat-card ${s}">
-      <div class="n">${data.counts[s] || 0}</div>
+      <div class="top-row">
+        <div class="n">${data.counts[s] || 0}</div>
+        <div class="icon">${STATUS_ICON[s]}</div>
+      </div>
       <div class="label">${s.replace("_", " ")}</div>
     </div>
   `).join("");
 
-  const grid = document.getElementById("fridgeGrid");
   const fridges = (data.fridges || []).slice().sort((a, b) => a.id.localeCompare(b.id));
+
+  const grid = document.getElementById("fridgeGrid");
   grid.innerHTML = fridges.map(f => `
     <div class="fridge-card ${f.status}">
-      <div class="id">${f.id}</div>
-      <div class="meta">${f.status.replace("_", " ")} · ${timeAgo(f.lastEventAt)}</div>
-      ${f.openAlertIds && f.openAlertIds.length ? `<div class="alert-badge">${f.openAlertIds.length} open alert${f.openAlertIds.length > 1 ? "s" : ""}</div>` : ""}
+      <div class="glyph">&#129466;</div>
+      <div>
+        <div class="id">${f.id}</div>
+        <div class="meta">${f.status.replace("_", " ")} &middot; ${timeAgo(f.lastEventAt)}</div>
+        ${f.location ? `<div class="loc">${f.location.city}, ${f.location.state}</div>` : ""}
+        ${f.openAlertIds && f.openAlertIds.length ? `<div class="alert-badge">${f.openAlertIds.length} open alert${f.openAlertIds.length > 1 ? "s" : ""}</div>` : ""}
+      </div>
     </div>
   `).join("") || `<div class="loading">No fridges reporting yet — start cmd/fridge-sim.</div>`;
+
+  renderMap(fridges);
 
   document.getElementById("lastUpdated").textContent = "updated " + new Date(data.generatedAt).toLocaleTimeString();
 }
