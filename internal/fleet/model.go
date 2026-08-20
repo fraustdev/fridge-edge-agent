@@ -80,13 +80,14 @@ const (
 
 // Alert is one open item in the dispatch lifecycle: open -> assigned -> resolved.
 type Alert struct {
-	ID          int64         `json:"id"`
-	FridgeID    string        `json:"fridgeId"`
-	SlotID      string        `json:"slotId,omitempty"`
-	SourceEvent EventType     `json:"sourceEvent"`
-	Severity    AlertSeverity `json:"severity"`
-	Status      AlertStatus   `json:"status"`
-	AssignedTo  string        `json:"assignedTo,omitempty"`
-	CreatedAt   time.Time     `json:"createdAt"`
-	UpdatedAt   time.Time     `json:"updatedAt"`
+	ID            int64         `json:"id"`
+	FridgeID      string        `json:"fridgeId"`
+	SlotID        string        `json:"slotId,omitempty"`
+	SourceEvent   EventType     `json:"sourceEvent"`
+	Severity      AlertSeverity `json:"severity"`
+	Status        AlertStatus   `json:"status"`
+	AssignedTo    string        `json:"assignedTo,omitempty"`
+	BlockedReason string        `json:"blockedReason,omitempty"` // set when Assign found no eligible tech; stays "open" otherwise
+	CreatedAt     time.Time     `json:"createdAt"`
+	UpdatedAt     time.Time     `json:"updatedAt"`
 }

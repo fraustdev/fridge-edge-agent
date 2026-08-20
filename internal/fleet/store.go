@@ -32,6 +32,7 @@ type Store interface {
 	ListAlerts(ctx context.Context, status AlertStatus) ([]Alert, error)
 	ListOpenAlertsForFridge(ctx context.Context, fridgeID string) ([]Alert, error)
 	UpdateAlertStatus(ctx context.Context, id int64, status AlertStatus, assignedTo string) (Alert, error)
+	SetAlertBlocked(ctx context.Context, id int64, reason string) (Alert, error)
 
 	Close() error
 }
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS alerts (
 	severity TEXT NOT NULL,
 	status TEXT NOT NULL,
 	assigned_to TEXT,
+	blocked_reason TEXT,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL
 );
@@ -110,6 +112,12 @@ CREATE INDEX IF NOT EXISTS idx_alerts_fridge ON alerts(fridge_id, status);
 			if !strings.Contains(err.Error(), "duplicate column name") {
 				return fmt.Errorf("add fridges column %q: %w", col, err)
 			}
+		}
+	}
+	// same idea for alerts predating blocked_reason.
+	if _, err := s.db.Exec(`ALTER TABLE alerts ADD COLUMN blocked_reason TEXT`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("add alerts column %q: %w", "blocked_reason TEXT", err)
 		}
 	}
 	return nil
@@ -297,9 +305,9 @@ func (s *SQLiteStore) ListFridges(ctx context.Context) ([]Fridge, error) {
 
 func (s *SQLiteStore) CreateAlert(ctx context.Context, a Alert) (Alert, error) {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO alerts (fridge_id, slot_id, source_event, severity, status, assigned_to, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.FridgeID, a.SlotID, string(a.SourceEvent), string(a.Severity), string(a.Status), a.AssignedTo,
+		`INSERT INTO alerts (fridge_id, slot_id, source_event, severity, status, assigned_to, blocked_reason, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.FridgeID, a.SlotID, string(a.SourceEvent), string(a.Severity), string(a.Status), a.AssignedTo, a.BlockedReason,
 		a.CreatedAt.UTC().Format(time.RFC3339Nano), a.UpdatedAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return Alert{}, fmt.Errorf("insert alert: %w", err)
@@ -312,13 +320,15 @@ func (s *SQLiteStore) CreateAlert(ctx context.Context, a Alert) (Alert, error) {
 	return a, nil
 }
 
+const alertColumns = `id, fridge_id, slot_id, source_event, severity, status, assigned_to, blocked_reason, created_at, updated_at`
+
 func scanAlert(scanner interface {
 	Scan(dest ...any) error
 }) (Alert, error) {
 	var a Alert
-	var slotID, assignedTo sql.NullString
+	var slotID, assignedTo, blockedReason sql.NullString
 	var sourceEvent, severity, status, createdAt, updatedAt string
-	err := scanner.Scan(&a.ID, &a.FridgeID, &slotID, &sourceEvent, &severity, &status, &assignedTo, &createdAt, &updatedAt)
+	err := scanner.Scan(&a.ID, &a.FridgeID, &slotID, &sourceEvent, &severity, &status, &assignedTo, &blockedReason, &createdAt, &updatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Alert{}, ErrNotFound
@@ -327,6 +337,7 @@ func scanAlert(scanner interface {
 	}
 	a.SlotID = slotID.String
 	a.AssignedTo = assignedTo.String
+	a.BlockedReason = blockedReason.String
 	a.SourceEvent = EventType(sourceEvent)
 	a.Severity = AlertSeverity(severity)
 	a.Status = AlertStatus(status)
@@ -342,9 +353,7 @@ func scanAlert(scanner interface {
 }
 
 func (s *SQLiteStore) GetAlert(ctx context.Context, id int64) (Alert, error) {
-	row := s.db.QueryRowContext(ctx,
-		`SELECT id, fridge_id, slot_id, source_event, severity, status, assigned_to, created_at, updated_at
-		 FROM alerts WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT `+alertColumns+` FROM alerts WHERE id = ?`, id)
 	return scanAlert(row)
 }
 
@@ -352,13 +361,10 @@ func (s *SQLiteStore) ListAlerts(ctx context.Context, status AlertStatus) ([]Ale
 	var rows *sql.Rows
 	var err error
 	if status == "" {
-		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, fridge_id, slot_id, source_event, severity, status, assigned_to, created_at, updated_at
-			 FROM alerts ORDER BY created_at DESC`)
+		rows, err = s.db.QueryContext(ctx, `SELECT `+alertColumns+` FROM alerts ORDER BY created_at DESC`)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, fridge_id, slot_id, source_event, severity, status, assigned_to, created_at, updated_at
-			 FROM alerts WHERE status = ? ORDER BY created_at DESC`, string(status))
+			`SELECT `+alertColumns+` FROM alerts WHERE status = ? ORDER BY created_at DESC`, string(status))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query alerts: %w", err)
@@ -378,8 +384,7 @@ func (s *SQLiteStore) ListAlerts(ctx context.Context, status AlertStatus) ([]Ale
 
 func (s *SQLiteStore) ListOpenAlertsForFridge(ctx context.Context, fridgeID string) ([]Alert, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, fridge_id, slot_id, source_event, severity, status, assigned_to, created_at, updated_at
-		 FROM alerts WHERE fridge_id = ? AND status != ? ORDER BY created_at DESC`,
+		`SELECT `+alertColumns+` FROM alerts WHERE fridge_id = ? AND status != ? ORDER BY created_at DESC`,
 		fridgeID, string(AlertResolved))
 	if err != nil {
 		return nil, fmt.Errorf("query open alerts: %w", err)
@@ -397,13 +402,38 @@ func (s *SQLiteStore) ListOpenAlertsForFridge(ctx context.Context, fridgeID stri
 	return alerts, rows.Err()
 }
 
+// UpdateAlertStatus moves an alert to a new status, always clearing any
+// prior blocked reason -- a blocked reason only makes sense while an alert
+// is stuck open, and this is the only path that changes status away from
+// that (both a real assignment and a resolve should clear it).
 func (s *SQLiteStore) UpdateAlertStatus(ctx context.Context, id int64, status AlertStatus, assignedTo string) (Alert, error) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE alerts SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE alerts SET status = ?, assigned_to = ?, blocked_reason = '', updated_at = ? WHERE id = ?`,
 		string(status), assignedTo, now, id)
 	if err != nil {
 		return Alert{}, fmt.Errorf("update alert: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return Alert{}, fmt.Errorf("rows affected: %w", err)
+	}
+	if n == 0 {
+		return Alert{}, ErrNotFound
+	}
+	return s.GetAlert(ctx, id)
+}
+
+// SetAlertBlocked records why an open alert couldn't be assigned (no
+// eligible tech for its venue) without changing its status -- it stays
+// "open", just with a visible reason instead of silently sitting there.
+func (s *SQLiteStore) SetAlertBlocked(ctx context.Context, id int64, reason string) (Alert, error) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE alerts SET blocked_reason = ?, updated_at = ? WHERE id = ?`,
+		reason, now, id)
+	if err != nil {
+		return Alert{}, fmt.Errorf("set alert blocked: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {

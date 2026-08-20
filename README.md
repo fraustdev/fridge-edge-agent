@@ -98,8 +98,9 @@ carrying over v1's "no API key needed" fallback behavior).
 | `GET` | `/fleet/status` | Fleet-wide health: healthy / low-stock / faulted / offline counts and per-fridge summary |
 | `GET` | `/fleet/fridges/{id}` | One fridge's recent events, open alerts, and current status |
 | `GET` | `/fleet/alerts?status=` | List alerts, optionally filtered by `open`/`assigned`/`resolved` |
-| `POST` | `/fleet/alerts/{id}/assign` | Move an alert to `assigned`, round-robin over a fixed tech list |
+| `POST` | `/fleet/alerts/{id}/assign` | Assign one alert to the next tech eligible for its venue (round-robin within that eligible subset) |
 | `POST` | `/fleet/alerts/{id}/resolve` | Move an alert to `resolved` |
+| `POST` | `/fleet/alerts/assign-next` | Assign the single highest-priority open alert fleet-wide (see "Venue-aware dispatch" below) |
 | `GET` | `/fleet/copilot/summary` | Fleet-wide LLM (or heuristic) ops narrative over recent events |
 
 A fridge is marked **offline** at read time if it hasn't reported an event
@@ -120,6 +121,62 @@ charged-no-item case" guarantee holds even if the LLM call fails, is
 skipped (no API key), or writes a bad narrative — the narrative is framing,
 the structured fields are the correctness surface.
 
+## Venue-aware dispatch (v3, `internal/fleet/venue.go` + `techs.go`)
+
+The original v2 dispatch logic (`internal/fleet/dispatch.go`) assigned every
+alert round-robin, with no awareness of *where* the fridge actually was.
+That stopped being a reasonable simplification once you look at where
+Farmer's Fridge has actually been expanding: they've grown into 20+ major
+U.S. airports, and a Fast Casual piece (Jan 2026) describes CEO Luke
+Saunders appearing at a press briefing at Reagan National alongside the HHS
+Secretary and the U.S. Transportation Secretary — tied to federal
+infrastructure-law funding specifically for airport concessions. New
+airport locations kept opening through 2026 (Boston Logan in May, Houston
+Bush in August). An airport fridge is a different operational problem than
+an office-lobby one: **access is gated** (post-security locations need a
+badged/cleared tech, not "whoever's nearest"), **traffic isn't flat**
+(sharp peak windows where a stockout is far costlier), and **visibility is
+higher** (a broken fridge in a federally-spotlighted expansion is a worse
+look than the same failure in a hospital break room).
+
+**Full evidence and design rationale: see [SPEC_V3.md](./SPEC_V3.md).**
+
+**Honest caveat, stated plainly:** the criticality tiers below (which venue
+types count as "high priority") and the access-clearance/roster model are
+an **illustrative model**, built from general public knowledge of what kind
+of constraints airport locations impose — not insider knowledge of Farmer's
+Fridge's actual internal SLAs or technician staffing/certification policy.
+None of that is public, and this project doesn't claim otherwise.
+
+What's here:
+
+- **Criticality tiers per venue type** (`internal/fleet/venue.go`):
+  Airport/Healthcare = high, Office/B&I = medium, Education = lower. Each
+  open alert's priority score is dominated by its venue's tier — the
+  weight gaps (100/50/10) are wide enough that no combination of the
+  smaller severity/age/peak factors can let a lower-tier alert outrank a
+  higher-tier one (see the worked bound in `priorityScore`'s doc comment).
+  A fridge's tier is shown on its dashboard card; every alert's live
+  priority score is shown in the alerts table.
+- **Access-constrained assignment** (`internal/fleet/techs.go`): a small
+  static mock tech roster (`tech-alice`/`tech-bob`/`tech-carol` — not real
+  staffing data) with per-venue clearances. Airport alerts can only go to a
+  cleared tech. If none is available, the alert stays `open` with a
+  visible `blockedReason` instead of silently sitting there indistinguishable
+  from a normal open alert (dashboard shows a distinct "blocked" badge).
+- **Peak-window weighting**: Airport-vertical alerts get a priority boost
+  during two UTC hour windows approximating morning/evening travel peaks.
+  This is a deliberately simple, single-timezone heuristic, not a real
+  travel-demand model — the point is demonstrating the dispatch model
+  treats *when* as well as *where*.
+- **`POST /fleet/alerts/assign-next`**: scans all open alerts, and assigns
+  the single highest-priority one that has an eligible tech, skipping (and
+  marking blocked) any higher-priority candidates that don't. The existing
+  per-alert `POST /fleet/alerts/{id}/assign` still exists for manual,
+  human-driven assignment of a specific alert; `assign-next` is the new
+  "let the priority model pick" path, and the dashboard's "Auto-assign
+  highest priority" button drives it.
+
 ## Package layout
 
 ```
@@ -129,7 +186,9 @@ internal/
                EventPublisher instead of an in-process callback)
   copilot/     LLM-assisted ops summarizer, repointed at fleet-wide event
                batches; heuristic fallback when no API key is set
-  fleet/       model.go, store.go (SQLite), ingest.go, status.go, dispatch.go
+  fleet/       model.go, store.go (SQLite), ingest.go, status.go, dispatch.go,
+               venue.go (v3: criticality tiers, priority scoring), techs.go
+               (v3: mock tech roster + venue clearances)
 cmd/
   fleet-server/  HTTP server entrypoint
   fridge-sim/    harness spinning up N simulated fridges

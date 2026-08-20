@@ -49,11 +49,19 @@ type fleetStatusResponse struct {
 }
 
 type fridgeView struct {
-	ID           string       `json:"id"`
-	Status       FridgeStatus `json:"status"`
-	LastEventAt  time.Time    `json:"lastEventAt"`
-	OpenAlertIDs []int64      `json:"openAlertIds,omitempty"`
-	Location     *Location    `json:"location,omitempty"`
+	ID           string          `json:"id"`
+	Status       FridgeStatus    `json:"status"`
+	LastEventAt  time.Time       `json:"lastEventAt"`
+	OpenAlertIDs []int64         `json:"openAlertIds,omitempty"`
+	Location     *Location       `json:"location,omitempty"`
+	Tier         CriticalityTier `json:"tier,omitempty"` // venue criticality tier; see venue.go
+}
+
+func tierFor(loc *Location) CriticalityTier {
+	if loc == nil {
+		return ""
+	}
+	return venueProfileFor(loc.Vertical).Tier
 }
 
 // ServeHTTP handles GET /fleet/status: fleet-wide health view.
@@ -82,6 +90,7 @@ func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			LastEventAt:  f.LastEventAt,
 			OpenAlertIDs: f.OpenAlertIDs,
 			Location:     f.Location,
+			Tier:         tierFor(f.Location),
 		})
 	}
 
@@ -159,6 +168,7 @@ func (h *FridgeDetailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			LastEventAt:  fridge.LastEventAt,
 			OpenAlertIDs: fridge.OpenAlertIDs,
 			Location:     fridge.Location,
+			Tier:         tierFor(fridge.Location),
 		},
 		RecentEvents: events,
 		OpenAlerts:   openAlerts,
@@ -171,8 +181,9 @@ func (h *FridgeDetailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 // AlertsHandler handles the dispatch lifecycle over HTTP:
 //
 //	GET  /fleet/alerts             list alerts (optional ?status= filter)
-//	POST /fleet/alerts/{id}/assign assign the alert to the next tech
+//	POST /fleet/alerts/{id}/assign assign the alert to the next eligible tech
 //	POST /fleet/alerts/{id}/resolve mark the alert resolved
+//	POST /fleet/alerts/assign-next assign the single highest-priority open alert
 type AlertsHandler struct {
 	Store      Store
 	Dispatcher *Dispatcher
@@ -189,6 +200,8 @@ func (h *AlertsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "" && r.Method == http.MethodGet:
 		h.list(w, r)
+	case path == "assign-next" && r.Method == http.MethodPost:
+		h.assignNext(w, r)
 	case strings.HasSuffix(path, "/assign") && r.Method == http.MethodPost:
 		h.transition(w, r, strings.TrimSuffix(path, "/assign"), h.Dispatcher.Assign)
 	case strings.HasSuffix(path, "/resolve") && r.Method == http.MethodPost:
@@ -198,6 +211,14 @@ func (h *AlertsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// alertView adds the current, read-time-computed priority score to an
+// Alert for display -- priority isn't stored, since it depends on "now"
+// (age, peak windows) as well as the alert's static fields.
+type alertView struct {
+	Alert
+	Priority float64 `json:"priority"`
+}
+
 func (h *AlertsHandler) list(w http.ResponseWriter, r *http.Request) {
 	status := AlertStatus(r.URL.Query().Get("status"))
 	alerts, err := h.Store.ListAlerts(r.Context(), status)
@@ -205,8 +226,22 @@ func (h *AlertsHandler) list(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to list alerts: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	views := make([]alertView, len(alerts))
+	for i, a := range alerts {
+		views[i] = alertView{Alert: a, Priority: h.Dispatcher.PriorityOf(r.Context(), a)}
+	}
 	w.Header().Set("content-type", "application/json")
-	json.NewEncoder(w).Encode(alerts)
+	json.NewEncoder(w).Encode(views)
+}
+
+func (h *AlertsHandler) assignNext(w http.ResponseWriter, r *http.Request) {
+	assigned, err := h.Dispatcher.AssignNext(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("content-type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"assigned": assigned})
 }
 
 func (h *AlertsHandler) transition(w http.ResponseWriter, r *http.Request, idStr string, fn func(ctx context.Context, id int64) (Alert, error)) {

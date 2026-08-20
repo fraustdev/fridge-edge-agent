@@ -188,6 +188,16 @@
   .badge.faulted, .badge.high, .badge.open { background: var(--faulted-bg); color: var(--faulted); }
   .badge.offline, .badge.resolved { background: var(--offline-bg); color: var(--offline); }
   .badge.assigned { background: #e5edf7; color: #2a5a94; }
+  .badge.blocked { background: var(--low_stock-bg); color: var(--low_stock); }
+  .badge.tier-high { background: var(--faulted-bg); color: var(--faulted); }
+  .badge.tier-medium { background: var(--low_stock-bg); color: var(--low_stock); }
+  .badge.tier-low { background: var(--offline-bg); color: var(--offline); }
+
+  .blocked-reason { display: block; font-size: 10.5px; color: var(--low_stock); margin-top: 2px; }
+  .priority-cell { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+  .alerts-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .alerts-toolbar .tabs { margin-bottom: 0; }
 
   .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
   .tabs button {
@@ -292,15 +302,18 @@
 
   <section>
     <h2>Alerts</h2>
-    <div class="tabs" id="alertTabs">
-      <button data-status="" class="active">All</button>
-      <button data-status="open">Open</button>
-      <button data-status="assigned">Assigned</button>
-      <button data-status="resolved">Resolved</button>
+    <div class="alerts-toolbar">
+      <div class="tabs" id="alertTabs">
+        <button data-status="" class="active">All</button>
+        <button data-status="open">Open</button>
+        <button data-status="assigned">Assigned</button>
+        <button data-status="resolved">Resolved</button>
+      </div>
+      <button class="refresh-btn" id="assignNextBtn">Auto-assign highest priority</button>
     </div>
     <table>
       <thead>
-        <tr><th>ID</th><th>Fridge</th><th>Slot</th><th>Source</th><th>Severity</th><th>Status</th><th>Assigned To</th><th>Created</th><th></th></tr>
+        <tr><th>ID</th><th>Fridge</th><th>Slot</th><th>Source</th><th>Severity</th><th>Priority</th><th>Status</th><th>Assigned To</th><th>Created</th><th></th></tr>
       </thead>
       <tbody id="alertRows"></tbody>
     </table>
@@ -401,6 +414,7 @@ async function refreshStatus() {
         <div class="id">${f.id}</div>
         <div class="meta">${f.status.replace("_", " ")} &middot; ${timeAgo(f.lastEventAt)}</div>
         ${f.location ? `<div class="loc">${f.location.vertical ? "[" + f.location.vertical + "] " : ""}${f.location.city}, ${f.location.state}</div>` : ""}
+        ${f.tier ? `<span class="badge tier-${f.tier}">${f.tier} tier</span>` : ""}
         ${f.openAlertIds && f.openAlertIds.length ? `<div class="alert-badge">${f.openAlertIds.length} open alert${f.openAlertIds.length > 1 ? "s" : ""}</div>` : ""}
       </div>
     </div>
@@ -419,7 +433,7 @@ async function refreshAlerts() {
 
   const rows = document.getElementById("alertRows");
   if (!alerts.length) {
-    rows.innerHTML = `<tr class="empty-row"><td colspan="9">No alerts here.</td></tr>`;
+    rows.innerHTML = `<tr class="empty-row"><td colspan="10">No alerts here.</td></tr>`;
     return;
   }
   rows.innerHTML = alerts.map(a => `
@@ -429,7 +443,12 @@ async function refreshAlerts() {
       <td>${a.slotId || "—"}</td>
       <td>${a.sourceEvent}</td>
       <td><span class="badge ${a.severity}">${a.severity}</span></td>
-      <td><span class="badge ${a.status}">${a.status}</span></td>
+      <td class="priority-cell">${a.priority != null ? a.priority.toFixed(1) : "—"}</td>
+      <td>
+        ${a.blockedReason
+          ? `<span class="badge blocked">blocked</span><span class="blocked-reason">${a.blockedReason}</span>`
+          : `<span class="badge ${a.status}">${a.status}</span>`}
+      </td>
       <td>${a.assignedTo || "—"}</td>
       <td>${timeAgo(a.createdAt)}</td>
       <td>
@@ -450,6 +469,14 @@ async function resolveAlert(id) {
   await fetch(`/fleet/alerts/${id}/resolve`, { method: "POST" });
   refreshAlerts();
   refreshStatus();
+}
+
+async function assignNext() {
+  const res = await fetch("/fleet/alerts/assign-next", { method: "POST" });
+  const data = await res.json();
+  refreshAlerts();
+  refreshStatus();
+  return data.assigned;
 }
 
 function renderNarrative(text) {
@@ -500,6 +527,7 @@ document.getElementById("alertTabs").addEventListener("click", (e) => {
 });
 
 document.getElementById("copilotRefresh").addEventListener("click", refreshCopilot);
+document.getElementById("assignNextBtn").addEventListener("click", assignNext);
 
 refreshStatus();
 refreshAlerts();
