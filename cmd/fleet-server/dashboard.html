@@ -4,122 +4,118 @@
 <meta charset="utf-8">
 <title>Fridge Fleet Ops</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/leaflet.css">
 <style>
   :root {
-    --bg: #f4f6f2;
-    --panel: #ffffff;
-    --border: #e2e6dc;
-    --text: #223026;
-    --muted: #6e7a6c;
-    --healthy: #2f9e5c;
-    --healthy-bg: #e3f6ea;
-    --low_stock: #c6890e;
-    --low_stock-bg: #fcf0da;
-    --faulted: #d9432f;
-    --faulted-bg: #fce6e2;
-    --offline: #7a7f77;
-    --offline-bg: #ececea;
-    --accent1: #1f6d43;
-    --accent2: #1a8f6b;
-    --shadow: 0 1px 2px rgba(30, 45, 30, 0.06), 0 4px 14px rgba(30, 45, 30, 0.05);
+    --bg: #0f1113;
+    --panel: #1a1d21;
+    --panel-raised: #202327;
+    --border: #2a2d33;
+    --text: #e7e9ec;
+    --muted: #8b9098;
+    --healthy: #6fae8c;
+    --healthy-bg: rgba(111, 174, 140, 0.16);
+    --low_stock: #c9a15a;
+    --low_stock-bg: rgba(201, 161, 90, 0.16);
+    --faulted: #c97a6d;
+    --faulted-bg: rgba(201, 122, 109, 0.16);
+    --offline: #8b9098;
+    --offline-bg: rgba(139, 144, 152, 0.16);
+    --accent: #5b93c2;
+    --accent-bg: rgba(91, 147, 194, 0.16);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 20px rgba(0, 0, 0, 0.35);
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-weight: 400;
     background: var(--bg);
     color: var(--text);
-    background-image:
-      radial-gradient(circle at 15% 0%, rgba(31, 109, 67, 0.06), transparent 45%),
-      radial-gradient(circle at 85% 10%, rgba(26, 143, 107, 0.05), transparent 40%);
   }
   header {
-    padding: 26px 32px;
-    background: linear-gradient(120deg, var(--accent1), var(--accent2));
-    color: white;
+    padding: 18px 32px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 10px;
-    box-shadow: var(--shadow);
   }
   header .title-row { display: flex; align-items: center; gap: 12px; }
   header .fridge-icon {
-    width: 34px; height: 34px;
+    width: 32px; height: 32px;
     display: flex; align-items: center; justify-content: center;
-    background: rgba(255,255,255,0.18);
+    background: var(--panel);
+    border: 1px solid var(--border);
     border-radius: 9px;
-    font-size: 18px;
+    font-size: 16px;
   }
-  header h1 { margin: 0; font-size: 21px; letter-spacing: -0.01em; }
-  header .sub { color: rgba(255,255,255,0.85); font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+  header h1 { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: -0.01em; color: var(--text); }
+  header .sub { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; }
   .live-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: #7CF29C;
-    box-shadow: 0 0 0 rgba(124,242,156,0.6);
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--healthy);
     animation: pulse-dot 2s infinite;
   }
   @keyframes pulse-dot {
-    0% { box-shadow: 0 0 0 0 rgba(124,242,156,0.55); }
-    70% { box-shadow: 0 0 0 7px rgba(124,242,156,0); }
-    100% { box-shadow: 0 0 0 0 rgba(124,242,156,0); }
+    0% { box-shadow: 0 0 0 0 rgba(111,174,140,0.55); }
+    70% { box-shadow: 0 0 0 6px rgba(111,174,140,0); }
+    100% { box-shadow: 0 0 0 0 rgba(111,174,140,0); }
   }
 
   main { padding: 28px 32px 60px; max-width: 1160px; margin: 0 auto; }
   section { margin-bottom: 34px; }
   section h2 {
-    font-size: 12.5px;
+    font-size: 12px;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.07em;
     color: var(--muted);
     margin: 0 0 12px;
-    font-weight: 700;
+    font-weight: 500;
   }
 
-  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
   .stat-card {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 16px;
     padding: 16px 18px;
-    box-shadow: var(--shadow);
-    transition: transform 0.15s ease;
   }
-  .stat-card:hover { transform: translateY(-2px); }
   .stat-card .top-row { display: flex; align-items: center; justify-content: space-between; }
-  .stat-card .n { font-size: 30px; font-weight: 700; line-height: 1; }
-  .stat-card .icon { font-size: 20px; opacity: 0.85; }
-  .stat-card .label { font-size: 12px; color: var(--muted); text-transform: capitalize; margin-top: 4px; }
+  .stat-card .n { font-size: 28px; font-weight: 600; line-height: 1; color: var(--text); }
+  .stat-card .icon { font-size: 16px; opacity: 0.7; }
+  .stat-card .label { font-size: 11.5px; color: var(--muted); text-transform: capitalize; margin-top: 4px; }
+  .stat-card .spark { display: block; width: 100%; height: 26px; margin-top: 10px; }
   .stat-card.healthy .n { color: var(--healthy); }
   .stat-card.low_stock .n { color: var(--low_stock); }
   .stat-card.faulted .n { color: var(--faulted); }
   .stat-card.offline .n { color: var(--offline); }
 
-  /* --- Map (Leaflet + OpenStreetMap tiles) --- */
+  /* --- Map (Leaflet + CARTO dark tiles) --- */
   .map-card {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 14px;
-    box-shadow: var(--shadow);
+    border-radius: 16px;
     padding: 16px;
   }
   .map-card .map-toolbar {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 10px; flex-wrap: wrap; gap: 8px;
   }
-  .map-card .map-count { font-size: 12.5px; color: var(--muted); }
+  .map-card .map-count { font-size: 12px; color: var(--muted); }
   #leafletMap {
     width: 100%;
     height: 520px;
     border-radius: 10px;
-    background: #eef3ea; /* shows while tiles load */
+    background: var(--panel-raised); /* shows while tiles load */
   }
   .fridge-marker {
-    width: 14px; height: 14px;
+    width: 13px; height: 13px;
     border-radius: 50%;
-    border: 2px solid white;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+    border: 2px solid var(--bg);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.15);
   }
   .fridge-marker.healthy { background: var(--healthy); }
   .fridge-marker.low_stock { background: var(--low_stock); }
@@ -129,48 +125,52 @@
     animation: pin-pulse 1.4s infinite;
   }
   @keyframes pin-pulse {
-    0% { box-shadow: 0 0 0 0 rgba(217,67,47,0.55), 0 1px 3px rgba(0,0,0,0.35); }
-    70% { box-shadow: 0 0 0 9px rgba(217,67,47,0), 0 1px 3px rgba(0,0,0,0.35); }
-    100% { box-shadow: 0 0 0 0 rgba(217,67,47,0), 0 1px 3px rgba(0,0,0,0.35); }
+    0% { box-shadow: 0 0 0 0 rgba(201,122,109,0.55), 0 0 0 1px rgba(255,255,255,0.15); }
+    70% { box-shadow: 0 0 0 8px rgba(201,122,109,0), 0 0 0 1px rgba(255,255,255,0.15); }
+    100% { box-shadow: 0 0 0 0 rgba(201,122,109,0), 0 0 0 1px rgba(255,255,255,0.15); }
   }
-  .leaflet-popup-content-wrapper { border-radius: 10px; }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+    background: var(--panel-raised);
+    color: var(--text);
+    box-shadow: var(--shadow);
+  }
   .leaflet-popup-content { font-size: 13px; line-height: 1.5; margin: 10px 12px; }
-  .popup-title { font-weight: 700; margin-bottom: 2px; }
+  .leaflet-popup-close-button { color: var(--muted) !important; }
+  .popup-title { font-weight: 600; margin-bottom: 2px; }
   .popup-sub { color: var(--muted); font-size: 12px; }
   .map-legend {
     display: flex; gap: 16px; flex-wrap: wrap;
     margin-top: 10px; font-size: 12px; color: var(--muted);
   }
   .map-legend span { display: inline-flex; align-items: center; gap: 5px; }
-  .map-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .map-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
-  .fridge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+  .fridge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
   .fridge-card {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-left: 4px solid var(--offline);
-    border-radius: 10px;
+    border-left: 3px solid var(--offline);
+    border-radius: 12px;
     padding: 11px 13px;
     font-size: 13px;
-    box-shadow: var(--shadow);
     display: flex;
     gap: 8px;
   }
-  .fridge-card .glyph { font-size: 18px; line-height: 1; margin-top: 1px; }
+  .fridge-card .glyph { font-size: 16px; line-height: 1; margin-top: 1px; opacity: 0.85; }
   .fridge-card.healthy { border-left-color: var(--healthy); }
   .fridge-card.low_stock { border-left-color: var(--low_stock); }
   .fridge-card.faulted { border-left-color: var(--faulted); }
   .fridge-card.offline { border-left-color: var(--offline); }
-  .fridge-card .id { font-weight: 700; }
+  .fridge-card .id { font-weight: 600; color: var(--text); }
   .fridge-card .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
   .fridge-card .loc { color: var(--muted); font-size: 11px; }
   .fridge-card .alert-badge {
     display: inline-block;
     margin-top: 6px;
-    font-size: 11px;
+    font-size: 10.5px;
     background: var(--faulted-bg);
     color: var(--faulted);
-    padding: 1px 6px;
+    padding: 1px 7px;
     border-radius: 999px;
     font-weight: 600;
   }
@@ -180,14 +180,14 @@
     padding: 2px 9px;
     border-radius: 999px;
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
     text-transform: capitalize;
   }
   .badge.healthy, .badge.low { background: var(--healthy-bg); color: var(--healthy); }
   .badge.low_stock, .badge.medium { background: var(--low_stock-bg); color: var(--low_stock); }
   .badge.faulted, .badge.high, .badge.open { background: var(--faulted-bg); color: var(--faulted); }
   .badge.offline, .badge.resolved { background: var(--offline-bg); color: var(--offline); }
-  .badge.assigned { background: #e5edf7; color: #2a5a94; }
+  .badge.assigned { background: var(--accent-bg); color: var(--accent); }
   .badge.blocked { background: var(--low_stock-bg); color: var(--low_stock); }
   .badge.tier-high { background: var(--faulted-bg); color: var(--faulted); }
   .badge.tier-medium { background: var(--low_stock-bg); color: var(--low_stock); }
@@ -208,20 +208,20 @@
     font-size: 12px;
     cursor: pointer;
     color: var(--muted);
-    font-weight: 600;
+    font-weight: 500;
   }
-  .tabs button.active { background: var(--accent1); color: white; border-color: var(--accent1); }
+  .tabs button.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 
-  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
-  th, td { text-align: left; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--border); color: var(--text); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; }
   tr:last-child td { border-bottom: none; }
-  tbody tr:hover { background: #fafcf8; }
+  tbody tr:hover { background: var(--panel-raised); }
   .empty-row td { color: var(--muted); text-align: center; padding: 20px; }
 
   button.action {
-    background: var(--accent1);
-    color: white;
+    background: var(--accent);
+    color: #0f1113;
     border: none;
     border-radius: 7px;
     padding: 5px 11px;
@@ -230,39 +230,37 @@
     margin-right: 4px;
     font-weight: 600;
   }
-  button.action.secondary { background: #6b6a63; }
+  button.action.secondary { background: var(--panel-raised); color: var(--text); border: 1px solid var(--border); }
   button.action:hover { opacity: 0.88; }
 
   .copilot-panel {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: 16px;
     padding: 18px 20px;
-    box-shadow: var(--shadow);
   }
   .copilot-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
-  .source-badge { font-size: 11px; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; }
+  .source-badge { font-size: 11px; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 600; }
   .source-badge.llm { background: var(--healthy-bg); color: var(--healthy); }
   .source-badge.heuristic { background: var(--offline-bg); color: var(--offline); }
-  .narrative { font-size: 14px; line-height: 1.6; }
-  .narrative h4 { margin: 14px 0 4px; }
+  .narrative { font-size: 14px; line-height: 1.6; color: var(--text); }
+  .narrative h4 { margin: 14px 0 4px; color: var(--text); }
   .narrative p { margin: 6px 0; }
   .stats-line { color: var(--muted); font-size: 12px; margin-top: 10px; }
 
   .refresh-btn {
-    background: none;
+    background: var(--panel-raised);
     border: 1px solid var(--border);
     border-radius: 7px;
     padding: 5px 12px;
     font-size: 12px;
     cursor: pointer;
     color: var(--text);
-    font-weight: 600;
+    font-weight: 500;
   }
-  .refresh-btn:hover { background: var(--bg); }
+  .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
   .loading { color: var(--muted); font-size: 13px; font-style: italic; }
 </style>
-<link rel="stylesheet" href="/static/leaflet.css">
 </head>
 <body>
 <header>
@@ -338,14 +336,49 @@ const STATUS_ORDER = ["healthy", "low_stock", "faulted", "offline"];
 const STATUS_ICON = { healthy: "✅", low_stock: "⚠️", faulted: "❌", offline: "📴" };
 let currentAlertFilter = "";
 
+// Rolling client-side history of each status's count, sampled once per
+// poll (every 5s) -- a real trend of this session's polling, not a
+// persisted historical series (the backend doesn't store one).
+const HISTORY_LEN = 30;
+const statHistory = { healthy: [], low_stock: [], faulted: [], offline: [] };
+
+function pushStatHistory(counts) {
+  STATUS_ORDER.forEach(s => {
+    const arr = statHistory[s];
+    arr.push(counts[s] || 0);
+    if (arr.length > HISTORY_LEN) arr.shift();
+  });
+}
+
+function sparklineSVG(values, statusKey) {
+  const w = 100, h = 26;
+  if (values.length < 2) return `<svg class="spark" viewBox="0 0 ${w} ${h}"></svg>`;
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = Math.max(max - min, 1);
+  const step = w / (values.length - 1);
+  const pts = values.map((v, i) => {
+    const x = i * step;
+    const y = h - ((v - min) / range) * (h - 4) - 2;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const areaPts = `0,${h} ${pts} ${w},${h}`;
+  const colorVar = `var(--${statusKey})`;
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <polygon points="${areaPts}" style="fill:${colorVar};opacity:0.15"></polygon>
+    <polyline points="${pts}" style="fill:none;stroke:${colorVar};stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"></polyline>
+  </svg>`;
+}
+
 let leafletMap = null;
 let markerLayer = null;
 
 function initMap() {
   leafletMap = L.map("leafletMap", { worldCopyJump: true }).setView([39.5, -98.35], 4);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
     maxZoom: 18,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    subdomains: "abcd",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(leafletMap);
   markerLayer = L.layerGroup().addTo(leafletMap);
 }
@@ -393,6 +426,8 @@ async function refreshStatus() {
   if (!res.ok) return;
   const data = await res.json();
 
+  pushStatHistory(data.counts);
+
   const statRow = document.getElementById("statRow");
   statRow.innerHTML = STATUS_ORDER.map(s => `
     <div class="stat-card ${s}">
@@ -401,6 +436,7 @@ async function refreshStatus() {
         <div class="icon">${STATUS_ICON[s]}</div>
       </div>
       <div class="label">${s.replace("_", " ")}</div>
+      ${sparklineSVG(statHistory[s], s)}
     </div>
   `).join("");
 
