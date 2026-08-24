@@ -254,10 +254,10 @@
   .chart-row .chart-fill { height: 100%; border-radius: 4px; min-width: 2px; }
   .chart-row .chart-count { width: 30px; text-align: right; font-family: var(--font-mono); color: var(--text); flex-shrink: 0; }
 
-  .copilot-actions-label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 16px 0 8px; flex-wrap: wrap; }
+  .panel-header-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 16px 0 8px; flex-wrap: wrap; }
   .copilot-actions-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
-  .copilot-actions-pager { display: flex; align-items: center; gap: 8px; }
-  .copilot-actions-pager .pager-indicator { font-family: var(--font-mono); font-size: 11px; color: var(--muted); min-width: 34px; text-align: center; }
+  .pager { display: flex; align-items: center; gap: 8px; }
+  .pager-indicator { font-family: var(--font-mono); font-size: 11px; color: var(--muted); min-width: 34px; text-align: center; }
   .pager-btn {
     background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
     color: var(--text); font-size: 12px; width: 22px; height: 22px; line-height: 1;
@@ -319,7 +319,10 @@
           <div id="copilotBody" class="loading">Not loaded yet — click "Regenerate summary".</div>
         </div>
         <div class="card">
-          <h2 style="margin-top:0">Needs attention</h2>
+          <div class="panel-header-row" style="margin-top:0">
+            <h2 style="margin:0" id="attentionLabel">Needs attention</h2>
+            <div id="attentionPager"></div>
+          </div>
           <div id="attentionList"></div>
         </div>
       </div>
@@ -616,18 +619,42 @@ function applyFridgeFilter(fitBounds) {
   if (fitBounds) fitMapToFridges(filtered);
 }
 
+// Paginated the same way as the copilot panel's action items: fixed at
+// 10/page (no user control), page state persists across live refreshes,
+// and page changes re-render locally against the last-fetched alerts
+// rather than re-fetching.
+let attentionPage = 0;
+const ATTENTION_PAGE_SIZE = 10;
+
 function renderAttentionList(alerts) {
   const list = document.getElementById("attentionList");
-  const top = alerts
-    .filter(a => a.status === "open")
-    .slice() // already sorted by priority desc by caller
-    .slice(0, 6);
+  const pagerEl = document.getElementById("attentionPager");
+  const open = alerts.filter(a => a.status === "open"); // already sorted by priority desc by caller
 
-  if (!top.length) {
+  if (!open.length) {
     list.innerHTML = `<div class="loading">Nothing needs attention right now.</div>`;
+    pagerEl.innerHTML = "";
+    document.getElementById("attentionLabel").textContent = "Needs attention";
     return;
   }
-  list.innerHTML = top.map(a => `
+
+  const totalPages = Math.max(1, Math.ceil(open.length / ATTENTION_PAGE_SIZE));
+  if (attentionPage >= totalPages) attentionPage = totalPages - 1;
+  if (attentionPage < 0) attentionPage = 0;
+
+  const start = attentionPage * ATTENTION_PAGE_SIZE;
+  const pageItems = open.slice(start, start + ATTENTION_PAGE_SIZE);
+
+  document.getElementById("attentionLabel").textContent = `Needs attention (${open.length})`;
+  pagerEl.innerHTML = `
+    <div class="pager">
+      <button class="pager-btn" onclick="changeAttentionPage(-1)" ${attentionPage === 0 ? "disabled" : ""}>&#8249;</button>
+      <span class="pager-indicator">${attentionPage + 1} / ${totalPages}</span>
+      <button class="pager-btn" onclick="changeAttentionPage(1)" ${attentionPage >= totalPages - 1 ? "disabled" : ""}>&#8250;</button>
+    </div>
+  `;
+
+  list.innerHTML = pageItems.map(a => `
     <div class="attention-item">
       <div class="info">
         <div class="id">${a.fridgeId} <span class="badge ${a.severity}" style="margin-left:6px">${a.severity}</span></div>
@@ -639,6 +666,11 @@ function renderAttentionList(alerts) {
       </div>
     </div>
   `).join("");
+}
+
+function changeAttentionPage(delta) {
+  attentionPage += delta;
+  renderAttentionList(latestAlerts);
 }
 
 async function refreshStatus() {
@@ -795,7 +827,7 @@ function renderCopilotActions(items) {
   `).join("");
 
   const pager = `
-    <div class="copilot-actions-pager">
+    <div class="pager">
       <button class="pager-btn" onclick="changeActionsPage(-1)" ${actionsPage === 0 ? "disabled" : ""}>&#8249;</button>
       <span class="pager-indicator">${actionsPage + 1} / ${totalPages}</span>
       <button class="pager-btn" onclick="changeActionsPage(1)" ${actionsPage >= totalPages - 1 ? "disabled" : ""}>&#8250;</button>
@@ -803,7 +835,7 @@ function renderCopilotActions(items) {
   `;
 
   return `
-    <div class="copilot-actions-label-row">
+    <div class="panel-header-row">
       <div class="copilot-actions-label">Needs review (${items.length})</div>
       ${pager}
     </div>
