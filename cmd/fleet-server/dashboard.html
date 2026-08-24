@@ -312,6 +312,23 @@
     <label>Location
       <select id="stateFilter"><option value="">All states</option></select>
     </label>
+    <label>Status
+      <select id="statusFilter">
+        <option value="">All statuses</option>
+        <option value="healthy">Healthy</option>
+        <option value="low_stock">Low stock</option>
+        <option value="faulted">Faulted</option>
+        <option value="offline">Offline</option>
+      </select>
+    </label>
+    <label>Tier
+      <select id="tierFilter">
+        <option value="">All tiers</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+    </label>
     <input type="text" id="fridgeSearch" placeholder="Search fridge id, city, or venue…">
     <button class="refresh-btn" id="clearFilterBtn">Clear filter</button>
     <span class="fridge-count" id="fridgeFilterCount"></span>
@@ -377,18 +394,24 @@ const STATUS_ORDER = ["healthy", "low_stock", "faulted", "offline"];
 const STATUS_ICON = { healthy: "✅", low_stock: "⚠️", faulted: "❌", offline: "📴" };
 let currentAlertFilter = "";
 
-// Full fridge list from the last poll, and the current location filter
-// applied on top of it -- with 2,000+ real locations, an unfiltered flat
-// list/map is unusable, so both the "Fridges" section and the map respect
-// this filter, grouped by state for a manageable default view.
+// Full fridge list from the last poll, and the current filter applied on
+// top of it -- with 2,000+ real locations, an unfiltered flat list/map is
+// unusable, so both the "Fridges" section and the map respect this filter,
+// grouped by state for a manageable default view.
 let allFridges = [];
-const locationFilter = { state: "", query: "" };
+const fridgeFilter = { state: "", status: "", tier: "", query: "" };
+
+function isFridgeFilterActive() {
+  return !!(fridgeFilter.state || fridgeFilter.status || fridgeFilter.tier || fridgeFilter.query);
+}
 
 function getFilteredFridges() {
   return allFridges.filter(f => {
-    if (locationFilter.state && (!f.location || f.location.state !== locationFilter.state)) return false;
-    if (locationFilter.query) {
-      const q = locationFilter.query.toLowerCase();
+    if (fridgeFilter.state && (!f.location || f.location.state !== fridgeFilter.state)) return false;
+    if (fridgeFilter.status && f.status !== fridgeFilter.status) return false;
+    if (fridgeFilter.tier && f.tier !== fridgeFilter.tier) return false;
+    if (fridgeFilter.query) {
+      const q = fridgeFilter.query.toLowerCase();
       const haystack = [f.id, f.location && f.location.city, f.location && f.location.name, f.location && f.location.vertical]
         .filter(Boolean).join(" ").toLowerCase();
       if (!haystack.includes(q)) return false;
@@ -461,17 +484,17 @@ function renderFridgeGroups(filtered) {
 
 function fitMapToFridges(fridges) {
   if (!leafletMap) return;
-  const withLoc = fridges.filter(f => f.location);
-  if (!locationFilter.state && !locationFilter.query) {
+  if (!isFridgeFilterActive()) {
     leafletMap.setView([39.5, -98.35], 4);
     return;
   }
+  const withLoc = fridges.filter(f => f.location);
   if (!withLoc.length) return;
   const bounds = L.latLngBounds(withLoc.map(f => [f.location.lat, f.location.lng]));
   leafletMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 10 });
 }
 
-function applyLocationFilter(fitBounds) {
+function applyFridgeFilter(fitBounds) {
   const filtered = getFilteredFridges();
   renderFridgeGroups(filtered);
   renderMap(filtered);
@@ -584,7 +607,7 @@ async function refreshStatus() {
 
   allFridges = (data.fridges || []).slice().sort((a, b) => a.id.localeCompare(b.id));
   populateStateFilter(allFridges);
-  applyLocationFilter(false);
+  applyFridgeFilter(false);
 
   document.getElementById("lastUpdated").textContent = "updated " + new Date(data.generatedAt).toLocaleTimeString();
 }
@@ -694,19 +717,31 @@ document.getElementById("copilotRefresh").addEventListener("click", refreshCopil
 document.getElementById("assignNextBtn").addEventListener("click", assignNext);
 
 document.getElementById("stateFilter").addEventListener("change", (e) => {
-  locationFilter.state = e.target.value;
-  applyLocationFilter(true);
+  fridgeFilter.state = e.target.value;
+  applyFridgeFilter(true);
+});
+document.getElementById("statusFilter").addEventListener("change", (e) => {
+  fridgeFilter.status = e.target.value;
+  applyFridgeFilter(true);
+});
+document.getElementById("tierFilter").addEventListener("change", (e) => {
+  fridgeFilter.tier = e.target.value;
+  applyFridgeFilter(true);
 });
 document.getElementById("fridgeSearch").addEventListener("input", (e) => {
-  locationFilter.query = e.target.value;
-  applyLocationFilter(true);
+  fridgeFilter.query = e.target.value;
+  applyFridgeFilter(true);
 });
 document.getElementById("clearFilterBtn").addEventListener("click", () => {
-  locationFilter.state = "";
-  locationFilter.query = "";
+  fridgeFilter.state = "";
+  fridgeFilter.status = "";
+  fridgeFilter.tier = "";
+  fridgeFilter.query = "";
   document.getElementById("stateFilter").value = "";
+  document.getElementById("statusFilter").value = "";
+  document.getElementById("tierFilter").value = "";
   document.getElementById("fridgeSearch").value = "";
-  applyLocationFilter(true);
+  applyFridgeFilter(true);
 });
 
 refreshStatus();

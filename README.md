@@ -57,10 +57,11 @@ way to vendor world imagery.
 
 At real scale (thousands of fridges), a flat list is unusable, so the
 "Fridges" section groups by state (collapsible, small states auto-expanded)
-and the location filter bar (state dropdown + free-text search over id/
-city/venue name) narrows both the fridge grid and the map together —
-selecting a state zooms the map to fit just that state's fridges. Verified
-against the full 2,326-location dataset: `-fridges 2326` populates every
+and the filter bar (state, status, and criticality-tier dropdowns, plus
+free-text search over id/city/venue name — all combine with AND) narrows
+the fridge grid and the map together — selecting a state zooms the map to
+fit just that state's fridges. Verified against the full 2,326-location
+dataset: `-fridges 2326` populates every
 real location, and the filter correctly narrows it down (e.g. selecting
 "CT" shows exactly its 5 real fridges and zooms the map to Connecticut).
 
