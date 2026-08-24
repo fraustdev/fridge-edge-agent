@@ -7,397 +7,462 @@
 <link rel="stylesheet" href="/static/leaflet.css">
 <style>
   :root {
-    --bg: #0f1113;
-    --panel: #1a1d21;
-    --panel-raised: #202327;
-    --border: #2a2d33;
-    --text: #e7e9ec;
-    --muted: #8b9098;
-    --healthy: #6fae8c;
-    --healthy-bg: rgba(111, 174, 140, 0.16);
-    --low_stock: #c9a15a;
-    --low_stock-bg: rgba(201, 161, 90, 0.16);
-    --faulted: #c97a6d;
-    --faulted-bg: rgba(201, 122, 109, 0.16);
-    --offline: #8b9098;
-    --offline-bg: rgba(139, 144, 152, 0.16);
-    --accent: #5b93c2;
-    --accent-bg: rgba(91, 147, 194, 0.16);
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 20px rgba(0, 0, 0, 0.35);
+    --bg: #faf3e6;
+    --sidebar-bg: #17181a;
+    --sidebar-text: #e3e4e6;
+    --sidebar-muted: #8f9296;
+    --sidebar-active-bg: #26282b;
+    --panel: #ffffff;
+    --border: #ece4d3;
+    --text: #211d19;
+    --muted: #8c8579;
+    --accent: #17181a;
+
+    --healthy-card: #d7e4c2;
+    --healthy-deep: #4f7034;
+    --low_stock-card: #f3e3a8;
+    --low_stock-deep: #8c6d1a;
+    --faulted-card: #f5d2da;
+    --faulted-deep: #a6394f;
+    --offline-card: #d3dcef;
+    --offline-deep: #485380;
+    --shadow: 0 1px 2px rgba(35,28,15,0.05), 0 6px 18px rgba(35,28,15,0.06);
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    font-weight: 400;
     background: var(--bg);
     color: var(--text);
   }
-  header {
-    padding: 18px 32px;
-    background: var(--bg);
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 10px;
+
+  .app-shell { display: flex; min-height: 100vh; }
+
+  .sidebar {
+    width: 232px; flex-shrink: 0;
+    background: var(--sidebar-bg);
+    padding: 22px 16px;
+    display: flex; flex-direction: column;
   }
-  header .title-row { display: flex; align-items: center; gap: 12px; }
-  header .fridge-icon {
-    width: 32px; height: 32px;
-    display: flex; align-items: center; justify-content: center;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    font-size: 16px;
+  .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 22px; }
+  .brand .glyph {
+    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    background: var(--sidebar-active-bg); border-radius: 9px; font-size: 16px;
   }
-  header h1 { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: -0.01em; color: var(--text); }
-  header .sub { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .brand .name { color: #fff; font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+  .nav-label { color: var(--sidebar-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; padding: 10px 12px 6px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    background: none; border: none; text-align: left; cursor: pointer;
+    color: var(--sidebar-muted); font-size: 13.5px; font-weight: 500;
+    padding: 9px 12px; border-radius: 10px; margin-bottom: 2px;
+  }
+  .nav-item .ic { font-size: 15px; width: 18px; text-align: center; }
+  .nav-item:hover { color: #fff; }
+  .nav-item.active { background: var(--sidebar-active-bg); color: #fff; }
+  .sidebar-foot { margin-top: auto; color: var(--sidebar-muted); font-size: 11px; padding: 8px 12px; }
+
+  .content { flex: 1; padding: 26px 36px 60px; max-width: 1240px; }
+  .topbar { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
+  .topbar h1 { margin: 0 0 4px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .page-sub { color: var(--muted); font-size: 13px; }
+  .sub { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; margin-top: 4px; }
   .live-dot {
     width: 7px; height: 7px; border-radius: 50%;
-    background: var(--healthy);
+    background: var(--healthy-deep);
     animation: pulse-dot 2s infinite;
   }
   @keyframes pulse-dot {
-    0% { box-shadow: 0 0 0 0 rgba(111,174,140,0.55); }
-    70% { box-shadow: 0 0 0 6px rgba(111,174,140,0); }
-    100% { box-shadow: 0 0 0 0 rgba(111,174,140,0); }
+    0% { box-shadow: 0 0 0 0 rgba(79,112,52,0.45); }
+    70% { box-shadow: 0 0 0 6px rgba(79,112,52,0); }
+    100% { box-shadow: 0 0 0 0 rgba(79,112,52,0); }
   }
 
-  main { padding: 28px 32px 60px; max-width: 1160px; margin: 0 auto; }
-  section { margin-bottom: 34px; }
-  section h2 {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--muted);
-    margin: 0 0 12px;
-    font-weight: 500;
+  .page { }
+  section { margin-bottom: 28px; }
+  h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--muted); margin: 0 0 12px; font-weight: 600;
   }
 
-  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
-  .stat-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 16px 18px;
-  }
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .stat-card { border-radius: 20px; padding: 18px 20px; }
   .stat-card .top-row { display: flex; align-items: center; justify-content: space-between; }
-  .stat-card .n { font-size: 28px; font-weight: 600; line-height: 1; color: var(--text); }
-  .stat-card .icon { font-size: 16px; opacity: 0.7; }
-  .stat-card .label { font-size: 11.5px; color: var(--muted); text-transform: capitalize; margin-top: 4px; }
-  .stat-card .spark { display: block; width: 100%; height: 26px; margin-top: 10px; }
-  .stat-card.healthy .n { color: var(--healthy); }
-  .stat-card.low_stock .n { color: var(--low_stock); }
-  .stat-card.faulted .n { color: var(--faulted); }
-  .stat-card.offline .n { color: var(--offline); }
+  .stat-card .n { font-size: 32px; font-weight: 700; line-height: 1; }
+  .stat-card .icon { font-size: 17px; opacity: 0.75; }
+  .stat-card .label { font-size: 12px; text-transform: capitalize; margin-top: 4px; font-weight: 500; opacity: 0.8; }
+  .stat-card .spark { display: block; width: 100%; height: 28px; margin-top: 12px; }
+  .stat-card.healthy { background: var(--healthy-card); color: var(--healthy-deep); }
+  .stat-card.low_stock { background: var(--low_stock-card); color: var(--low_stock-deep); }
+  .stat-card.faulted { background: var(--faulted-card); color: var(--faulted-deep); }
+  .stat-card.offline { background: var(--offline-card); color: var(--offline-deep); }
 
-  /* --- Map (Leaflet + CARTO dark tiles) --- */
-  .map-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 16px;
+  .dashboard-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 860px) { .dashboard-grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 18px;
+    padding: 18px 20px; box-shadow: var(--shadow);
   }
-  .map-card .map-toolbar {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 10px; flex-wrap: wrap; gap: 8px;
+
+  .attention-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 4px; border-bottom: 1px solid var(--border);
   }
+  .attention-item:last-child { border-bottom: none; }
+  .attention-item .info .id { font-weight: 600; font-size: 13.5px; }
+  .attention-item .info .meta { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .attention-item .priority { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); margin-right: 8px; }
+
+  /* --- Map (Leaflet + CARTO light tiles) --- */
+  .map-card { background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 16px; box-shadow: var(--shadow); }
+  .map-card .map-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
   .map-card .map-count { font-size: 12px; color: var(--muted); }
-  #leafletMap {
-    width: 100%;
-    height: 520px;
-    border-radius: 10px;
-    background: var(--panel-raised); /* shows while tiles load */
-  }
-  .fridge-marker {
-    width: 13px; height: 13px;
-    border-radius: 50%;
-    border: 2px solid var(--bg);
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.15);
-  }
-  .fridge-marker.healthy { background: var(--healthy); }
-  .fridge-marker.low_stock { background: var(--low_stock); }
-  .fridge-marker.offline { background: var(--offline); }
-  .fridge-marker.faulted {
-    background: var(--faulted);
-    animation: pin-pulse 1.4s infinite;
-  }
+  #leafletMap { width: 100%; height: 560px; border-radius: 12px; background: var(--border); }
+  .fridge-marker { width: 13px; height: 13px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.12); }
+  .fridge-marker.healthy { background: var(--healthy-deep); }
+  .fridge-marker.low_stock { background: var(--low_stock-deep); }
+  .fridge-marker.offline { background: var(--offline-deep); }
+  .fridge-marker.faulted { background: var(--faulted-deep); animation: pin-pulse 1.4s infinite; }
   @keyframes pin-pulse {
-    0% { box-shadow: 0 0 0 0 rgba(201,122,109,0.55), 0 0 0 1px rgba(255,255,255,0.15); }
-    70% { box-shadow: 0 0 0 8px rgba(201,122,109,0), 0 0 0 1px rgba(255,255,255,0.15); }
-    100% { box-shadow: 0 0 0 0 rgba(201,122,109,0), 0 0 0 1px rgba(255,255,255,0.15); }
+    0% { box-shadow: 0 0 0 0 rgba(166,57,79,0.5), 0 0 0 1px rgba(0,0,0,0.12); }
+    70% { box-shadow: 0 0 0 8px rgba(166,57,79,0), 0 0 0 1px rgba(0,0,0,0.12); }
+    100% { box-shadow: 0 0 0 0 rgba(166,57,79,0), 0 0 0 1px rgba(0,0,0,0.12); }
   }
-  .leaflet-popup-content-wrapper, .leaflet-popup-tip {
-    background: var(--panel-raised);
-    color: var(--text);
-    box-shadow: var(--shadow);
-  }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: #fff; color: var(--text); box-shadow: var(--shadow); }
   .leaflet-popup-content { font-size: 13px; line-height: 1.5; margin: 10px 12px; }
-  .leaflet-popup-close-button { color: var(--muted) !important; }
-  .popup-title { font-weight: 600; margin-bottom: 2px; }
+  .popup-title { font-weight: 700; margin-bottom: 2px; }
   .popup-sub { color: var(--muted); font-size: 12px; }
-  .map-legend {
-    display: flex; gap: 16px; flex-wrap: wrap;
-    margin-top: 10px; font-size: 12px; color: var(--muted);
-  }
+  .map-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--muted); }
   .map-legend span { display: inline-flex; align-items: center; gap: 5px; }
   .map-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
-  .fridge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
-  .fridge-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--offline);
-    border-radius: 12px;
-    padding: 11px 13px;
-    font-size: 13px;
-    display: flex;
-    gap: 8px;
-  }
-  .fridge-card .glyph { font-size: 16px; line-height: 1; margin-top: 1px; opacity: 0.85; }
-  .fridge-card.healthy { border-left-color: var(--healthy); }
-  .fridge-card.low_stock { border-left-color: var(--low_stock); }
-  .fridge-card.faulted { border-left-color: var(--faulted); }
-  .fridge-card.offline { border-left-color: var(--offline); }
-  .fridge-card .id { font-weight: 600; color: var(--text); }
-  .fridge-card .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
-  .fridge-card .loc { color: var(--muted); font-size: 11px; }
-  .fridge-card .alert-badge {
-    display: inline-block;
-    margin-top: 6px;
-    font-size: 10.5px;
-    background: var(--faulted-bg);
-    color: var(--faulted);
-    padding: 1px 7px;
-    border-radius: 999px;
-    font-weight: 600;
-  }
-
-  .badge {
-    display: inline-block;
-    padding: 2px 9px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: capitalize;
-  }
-  .badge.healthy, .badge.low { background: var(--healthy-bg); color: var(--healthy); }
-  .badge.low_stock, .badge.medium { background: var(--low_stock-bg); color: var(--low_stock); }
-  .badge.faulted, .badge.high, .badge.open { background: var(--faulted-bg); color: var(--faulted); }
-  .badge.offline, .badge.resolved { background: var(--offline-bg); color: var(--offline); }
-  .badge.assigned { background: var(--accent-bg); color: var(--accent); }
-  .badge.blocked { background: var(--low_stock-bg); color: var(--low_stock); }
-  .badge.tier-high { background: var(--faulted-bg); color: var(--faulted); }
-  .badge.tier-medium { background: var(--low_stock-bg); color: var(--low_stock); }
-  .badge.tier-low { background: var(--offline-bg); color: var(--offline); }
-
-  .blocked-reason { display: block; font-size: 10.5px; color: var(--low_stock); margin-top: 2px; }
-  .priority-cell { font-variant-numeric: tabular-nums; color: var(--muted); }
-
-  .alerts-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-  .alerts-toolbar .tabs { margin-bottom: 0; }
-
-  .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
-  .tabs button {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 5px 14px;
-    font-size: 12px;
-    cursor: pointer;
-    color: var(--muted);
-    font-weight: 500;
-  }
-  .tabs button.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
-
-  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-  th, td { text-align: left; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--border); color: var(--text); }
-  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; }
-  tr:last-child td { border-bottom: none; }
-  tbody tr:hover { background: var(--panel-raised); }
-  .empty-row td { color: var(--muted); text-align: center; padding: 20px; }
-
-  button.action {
-    background: var(--accent);
-    color: #0f1113;
-    border: none;
-    border-radius: 7px;
-    padding: 5px 11px;
-    font-size: 12px;
-    cursor: pointer;
-    margin-right: 4px;
-    font-weight: 600;
-  }
-  button.action.secondary { background: var(--panel-raised); color: var(--text); border: 1px solid var(--border); }
-  button.action:hover { opacity: 0.88; }
-
-  .copilot-panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 18px 20px;
-  }
-  .copilot-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
-  .source-badge { font-size: 11px; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 600; }
-  .source-badge.llm { background: var(--healthy-bg); color: var(--healthy); }
-  .source-badge.heuristic { background: var(--offline-bg); color: var(--offline); }
-  .narrative { font-size: 14px; line-height: 1.6; color: var(--text); }
-  .narrative h4 { margin: 14px 0 4px; color: var(--text); }
-  .narrative p { margin: 6px 0; }
-  .stats-line { color: var(--muted); font-size: 12px; margin-top: 10px; }
-
-  .refresh-btn {
-    background: var(--panel-raised);
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    padding: 5px 12px;
-    font-size: 12px;
-    cursor: pointer;
-    color: var(--text);
-    font-weight: 500;
-  }
-  .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .loading { color: var(--muted); font-size: 13px; font-style: italic; }
-
   .filter-bar {
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
-    padding: 10px 14px; margin-bottom: 20px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: 10px 14px; margin-bottom: 20px; box-shadow: var(--shadow);
   }
   .filter-bar label { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .filter-bar select, .filter-bar input {
-    background: var(--panel-raised); border: 1px solid var(--border); border-radius: 7px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
     color: var(--text); font-size: 12.5px; padding: 5px 9px;
   }
-  .filter-bar select { min-width: 150px; }
+  .filter-bar select { min-width: 140px; }
   .filter-bar input { min-width: 220px; }
   .filter-bar select:focus, .filter-bar input:focus { outline: none; border-color: var(--accent); }
   .filter-bar .fridge-count { margin-left: auto; font-size: 12px; color: var(--muted); }
 
-  .state-group {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-    padding: 2px 14px 12px; margin-bottom: 10px;
-  }
-  .state-group summary {
-    cursor: pointer; padding: 10px 0; color: var(--text); font-weight: 600; font-size: 13px;
-    display: flex; align-items: center; gap: 8px; list-style: none;
-  }
+  .state-group { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 2px 14px 12px; margin-bottom: 10px; box-shadow: var(--shadow); }
+  .state-group summary { cursor: pointer; padding: 10px 0; color: var(--text); font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px; list-style: none; }
   .state-group summary::-webkit-details-marker { display: none; }
   .state-group summary::before { content: "▸"; color: var(--muted); font-size: 11px; }
   .state-group[open] summary::before { content: "▾"; }
-  .state-group .state-count {
-    font-size: 11px; color: var(--muted); font-weight: 500; background: var(--panel-raised);
-    padding: 1px 8px; border-radius: 999px;
-  }
+  .state-group .state-count { font-size: 11px; color: var(--muted); font-weight: 500; background: var(--bg); padding: 1px 8px; border-radius: 999px; }
   .state-group-label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+
+  .fridge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .fridge-card {
+    background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--offline-deep);
+    border-radius: 14px; padding: 11px 13px; font-size: 13px; display: flex; gap: 8px; box-shadow: var(--shadow);
+  }
+  .fridge-card .glyph { font-size: 16px; line-height: 1; margin-top: 1px; opacity: 0.85; }
+  .fridge-card.healthy { border-left-color: var(--healthy-deep); }
+  .fridge-card.low_stock { border-left-color: var(--low_stock-deep); }
+  .fridge-card.faulted { border-left-color: var(--faulted-deep); }
+  .fridge-card.offline { border-left-color: var(--offline-deep); }
+  .fridge-card .id { font-weight: 600; }
+  .fridge-card .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .fridge-card .loc { color: var(--muted); font-size: 11px; }
+  .fridge-card .alert-badge {
+    display: inline-block; margin-top: 6px; font-size: 10.5px; background: var(--faulted-card); color: var(--faulted-deep);
+    padding: 1px 7px; border-radius: 999px; font-weight: 600;
+  }
+
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: capitalize; }
+  .badge.healthy, .badge.low, .badge.resolved { background: var(--healthy-card); color: var(--healthy-deep); }
+  .badge.low_stock, .badge.medium, .badge.blocked { background: var(--low_stock-card); color: var(--low_stock-deep); }
+  .badge.faulted, .badge.high, .badge.open { background: var(--faulted-card); color: var(--faulted-deep); }
+  .badge.offline, .badge.assigned { background: var(--offline-card); color: var(--offline-deep); }
+  .badge.tier-high { background: var(--faulted-card); color: var(--faulted-deep); }
+  .badge.tier-medium { background: var(--low_stock-card); color: var(--low_stock-deep); }
+  .badge.tier-low { background: var(--healthy-card); color: var(--healthy-deep); }
+
+  .blocked-reason { display: block; font-size: 10.5px; color: var(--low_stock-deep); margin-top: 2px; }
+  .priority-cell { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+  .alerts-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .alerts-toolbar .tabs { margin-bottom: 0; }
+  .alerts-toolbar .right-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+  .tabs button {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+    padding: 5px 14px; font-size: 12px; cursor: pointer; color: var(--muted); font-weight: 500;
+  }
+  .tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); }
+  th, td { text-align: left; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--bg); }
+  .empty-row td { color: var(--muted); text-align: center; padding: 20px; }
+  .load-more-row { text-align: center; margin-top: 14px; }
+
+  button.action { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 5px 11px; font-size: 12px; cursor: pointer; margin-right: 4px; font-weight: 600; }
+  button.action.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+  button.action:hover { opacity: 0.85; }
+
+  .copilot-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+  .source-badge { font-size: 11px; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 600; }
+  .source-badge.llm { background: var(--healthy-card); color: var(--healthy-deep); }
+  .source-badge.heuristic { background: var(--offline-card); color: var(--offline-deep); }
+  .narrative { font-size: 14px; line-height: 1.6; }
+  .narrative h4 { margin: 14px 0 4px; }
+  .narrative p { margin: 6px 0; }
+  .stats-line { color: var(--muted); font-size: 12px; margin-top: 10px; }
+
+  .refresh-btn {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 5px 12px; font-size: 12px; cursor: pointer; color: var(--text); font-weight: 500;
+  }
+  .refresh-btn:hover { border-color: var(--accent); }
+  .loading { color: var(--muted); font-size: 13px; font-style: italic; }
 </style>
 </head>
 <body>
-<header>
-  <div class="title-row">
-    <div class="fridge-icon">&#129466;</div>
-    <h1>Fridge Fleet Ops</h1>
-  </div>
-  <div class="sub"><span class="live-dot"></span><span id="lastUpdated">loading…</span></div>
-</header>
-<main>
-  <section>
-    <h2>Fleet Overview</h2>
-    <div class="stat-row" id="statRow"></div>
-  </section>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="glyph">&#129466;</div>
+      <div class="name">Fridge Fleet Ops</div>
+    </div>
+    <div class="nav-label">General</div>
+    <nav id="sidebarNav">
+      <button class="nav-item active" data-page="dashboard"><span class="ic">&#128202;</span> Dashboard</button>
+      <button class="nav-item" data-page="map"><span class="ic">&#128506;&#65039;</span> Fleet Map</button>
+      <button class="nav-item" data-page="fridges"><span class="ic">&#129466;</span> Fridges</button>
+      <button class="nav-item" data-page="alerts"><span class="ic">&#128276;</span> Alerts</button>
+    </nav>
+    <div class="sidebar-foot">Farmer's Fridge fleet-ops demo</div>
+  </aside>
 
-  <div class="filter-bar">
-    <label>Location
-      <select id="stateFilter"><option value="">All states</option></select>
-    </label>
-    <label>Status
-      <select id="statusFilter">
-        <option value="">All statuses</option>
-        <option value="healthy">Healthy</option>
-        <option value="low_stock">Low stock</option>
-        <option value="faulted">Faulted</option>
-        <option value="offline">Offline</option>
-      </select>
-    </label>
-    <label>Tier
-      <select id="tierFilter">
-        <option value="">All tiers</option>
-        <option value="high">High</option>
-        <option value="medium">Medium</option>
-        <option value="low">Low</option>
-      </select>
-    </label>
-    <input type="text" id="fridgeSearch" placeholder="Search fridge id, city, or venue…">
-    <button class="refresh-btn" id="clearFilterBtn">Clear filter</button>
-    <span class="fridge-count" id="fridgeFilterCount"></span>
-  </div>
-
-  <section>
-    <h2>Fleet Map</h2>
-    <div class="map-card">
-      <div class="map-toolbar">
-        <span class="map-count" id="mapCount">loading…</span>
-        <span class="map-count">scroll/pinch to zoom, drag to pan</span>
+  <main class="content">
+    <div class="topbar">
+      <div>
+        <h1 id="pageTitle">Dashboard</h1>
+        <div class="page-sub" id="pageSub">Fleet-wide health, today's priorities, and the ops copilot briefing.</div>
       </div>
-      <div id="leafletMap"></div>
-      <div class="map-legend">
-        <span><i style="background:var(--healthy)"></i> Healthy</span>
-        <span><i style="background:var(--low_stock)"></i> Low stock</span>
-        <span><i style="background:var(--faulted)"></i> Faulted (pulsing)</span>
-        <span><i style="background:var(--offline)"></i> Offline</span>
+      <div class="sub"><span class="live-dot"></span><span id="lastUpdated">loading…</span></div>
+    </div>
+
+    <div class="page" data-page="dashboard">
+      <div class="stat-row" id="statRow"></div>
+      <div class="dashboard-grid">
+        <div class="card">
+          <div class="copilot-header">
+            <span id="sourceBadge"></span>
+            <button class="refresh-btn" id="copilotRefresh">Regenerate summary</button>
+          </div>
+          <div id="copilotBody" class="loading">Not loaded yet — click "Regenerate summary".</div>
+          <div class="stats-line" id="copilotStats"></div>
+        </div>
+        <div class="card">
+          <h2 style="margin-top:0">Needs attention</h2>
+          <div id="attentionList"></div>
+        </div>
       </div>
     </div>
-  </section>
 
-  <section>
-    <h2>Fridges</h2>
-    <div id="fridgeGroups"></div>
-  </section>
-
-  <section>
-    <h2>Alerts</h2>
-    <div class="alerts-toolbar">
-      <div class="tabs" id="alertTabs">
-        <button data-status="" class="active">All</button>
-        <button data-status="open">Open</button>
-        <button data-status="assigned">Assigned</button>
-        <button data-status="resolved">Resolved</button>
+    <div class="page" data-page="map" style="display:none">
+      <div class="map-card">
+        <div class="map-toolbar">
+          <span class="map-count" id="mapCount">loading…</span>
+          <span class="map-count">scroll/pinch to zoom, drag to pan</span>
+        </div>
+        <div id="leafletMap"></div>
+        <div class="map-legend">
+          <span><i style="background:var(--healthy-deep)"></i> Healthy</span>
+          <span><i style="background:var(--low_stock-deep)"></i> Low stock</span>
+          <span><i style="background:var(--faulted-deep)"></i> Faulted (pulsing)</span>
+          <span><i style="background:var(--offline-deep)"></i> Offline</span>
+        </div>
       </div>
-      <button class="refresh-btn" id="assignNextBtn">Auto-assign highest priority</button>
     </div>
-    <table>
-      <thead>
-        <tr><th>ID</th><th>Fridge</th><th>Slot</th><th>Source</th><th>Severity</th><th>Priority</th><th>Status</th><th>Assigned To</th><th>Created</th><th></th></tr>
-      </thead>
-      <tbody id="alertRows"></tbody>
-    </table>
-  </section>
 
-  <section>
-    <h2>Ops Copilot Summary</h2>
-    <div class="copilot-panel">
-      <div class="copilot-header">
-        <span id="sourceBadge"></span>
-        <button class="refresh-btn" id="copilotRefresh">Regenerate summary</button>
+    <div class="page" data-page="fridges" style="display:none">
+      <div class="filter-bar">
+        <label>Location <select id="stateFilter"><option value="">All states</option></select></label>
+        <label>Status
+          <select id="statusFilter">
+            <option value="">All statuses</option>
+            <option value="healthy">Healthy</option>
+            <option value="low_stock">Low stock</option>
+            <option value="faulted">Faulted</option>
+            <option value="offline">Offline</option>
+          </select>
+        </label>
+        <label>Tier
+          <select id="tierFilter">
+            <option value="">All tiers</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </label>
+        <input type="text" id="fridgeSearch" placeholder="Search fridge id, city, or venue…">
+        <button class="refresh-btn" id="clearFilterBtn">Clear filter</button>
+        <span class="fridge-count" id="fridgeFilterCount"></span>
       </div>
-      <div id="copilotBody" class="loading">Not loaded yet — click "Regenerate summary".</div>
-      <div class="stats-line" id="copilotStats"></div>
+      <div id="fridgeGroups"></div>
     </div>
-  </section>
-</main>
+
+    <div class="page" data-page="alerts" style="display:none">
+      <div class="alerts-toolbar">
+        <div class="tabs" id="alertTabs">
+          <button data-status="" class="active">All</button>
+          <button data-status="open">Open</button>
+          <button data-status="assigned">Assigned</button>
+          <button data-status="resolved">Resolved</button>
+        </div>
+        <div class="right-controls">
+          <input type="text" id="alertSearch" placeholder="Search fridge id…" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:5px 9px;font-size:12.5px;color:var(--text);">
+          <button class="refresh-btn" id="assignNextBtn">Auto-assign highest priority</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Fridge</th><th>Slot</th><th>Source</th><th>Severity</th><th>Priority</th><th>Status</th><th>Assigned To</th><th>Created</th><th></th></tr>
+        </thead>
+        <tbody id="alertRows"></tbody>
+      </table>
+      <div class="load-more-row" id="loadMoreRow" style="display:none">
+        <button class="refresh-btn" id="loadMoreAlertsBtn">Show more</button>
+      </div>
+    </div>
+  </main>
+</div>
 
 <script src="/static/leaflet.js"></script>
 <script>
 const STATUS_ORDER = ["healthy", "low_stock", "faulted", "offline"];
 const STATUS_ICON = { healthy: "✅", low_stock: "⚠️", faulted: "❌", offline: "📴" };
 let currentAlertFilter = "";
+let alertSearchQuery = "";
+let alertRenderLimit = 150;
+const ALERT_PAGE_SIZE = 150;
+let latestAlerts = [];
 
-// Full fridge list from the last poll, and the current filter applied on
-// top of it -- with 2,000+ real locations, an unfiltered flat list/map is
-// unusable, so both the "Fridges" section and the map respect this filter,
-// grouped by state for a manageable default view.
+const PAGE_META = {
+  dashboard: ["Dashboard", "Fleet-wide health, today's priorities, and the ops copilot briefing."],
+  map: ["Fleet Map", "Every simulated fridge, plotted at its real Farmer's Fridge location."],
+  fridges: ["Fridges", "Browse and filter the fleet by location, status, and criticality tier."],
+  alerts: ["Alerts", "Everything the dispatch model has triaged, newest and highest-priority first."],
+};
+
+function showPage(page) {
+  Object.keys(PAGE_META).forEach(p => {
+    document.querySelector(`.page[data-page="${p}"]`).style.display = p === page ? "" : "none";
+  });
+  document.querySelectorAll(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.page === page));
+  document.getElementById("pageTitle").textContent = PAGE_META[page][0];
+  document.getElementById("pageSub").textContent = PAGE_META[page][1];
+  if (page === "map" && leafletMap) {
+    requestAnimationFrame(() => leafletMap.invalidateSize());
+    setTimeout(() => leafletMap.invalidateSize(), 250);
+  }
+}
+document.getElementById("sidebarNav").addEventListener("click", (e) => {
+  const btn = e.target.closest(".nav-item");
+  if (btn) showPage(btn.dataset.page);
+});
+
+// Rolling client-side history of each status's count, sampled once per
+// poll (every 5s) -- a real trend of this session's polling, not a
+// persisted historical series (the backend doesn't store one).
+const HISTORY_LEN = 30;
+const statHistory = { healthy: [], low_stock: [], faulted: [], offline: [] };
+
+function pushStatHistory(counts) {
+  STATUS_ORDER.forEach(s => {
+    const arr = statHistory[s];
+    arr.push(counts[s] || 0);
+    if (arr.length > HISTORY_LEN) arr.shift();
+  });
+}
+
+function sparklineSVG(values, statusKey) {
+  const w = 100, h = 28;
+  if (values.length < 2) return `<svg class="spark" viewBox="0 0 ${w} ${h}"></svg>`;
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = Math.max(max - min, 1);
+  const step = w / (values.length - 1);
+  const pts = values.map((v, i) => {
+    const x = i * step;
+    const y = h - ((v - min) / range) * (h - 4) - 2;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const areaPts = `0,${h} ${pts} ${w},${h}`;
+  const colorVar = `var(--${statusKey}-deep)`;
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <polygon points="${areaPts}" style="fill:${colorVar};opacity:0.18"></polygon>
+    <polyline points="${pts}" style="fill:none;stroke:${colorVar};stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"></polyline>
+  </svg>`;
+}
+
+let leafletMap = null;
+let markerLayer = null;
+
+function initMap() {
+  leafletMap = L.map("leafletMap", { worldCopyJump: true }).setView([39.5, -98.35], 4);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+    maxZoom: 18,
+    subdomains: "abcd",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  }).addTo(leafletMap);
+  markerLayer = L.layerGroup().addTo(leafletMap);
+}
+
+function timeAgo(iso) {
+  const d = new Date(iso);
+  const secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+  if (secs < 60) return secs + "s ago";
+  if (secs < 3600) return Math.floor(secs / 60) + "m ago";
+  if (secs < 86400) return Math.floor(secs / 3600) + "h ago";
+  return Math.floor(secs / 86400) + "d ago";
+}
+
+function renderMap(fridges) {
+  if (!leafletMap) initMap();
+  markerLayer.clearLayers();
+
+  const withLoc = fridges.filter(f => f.location);
+  document.getElementById("mapCount").textContent = withLoc.length
+    ? `${withLoc.length} fridge${withLoc.length === 1 ? "" : "s"} plotted`
+    : "no fridge locations reported yet — run cmd/fridge-sim";
+
+  withLoc.forEach(f => {
+    const icon = L.divIcon({
+      className: "",
+      html: `<div class="fridge-marker ${f.status}"></div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+      popupAnchor: [0, -8],
+    });
+    const loc = f.location;
+    const venue = loc.name || `${loc.city}, ${loc.state}`;
+    const marker = L.marker([loc.lat, loc.lng], { icon });
+    marker.bindPopup(`
+      <div class="popup-title">${f.id} &middot; ${f.status.replace("_", " ")}</div>
+      <div class="popup-sub">${venue}</div>
+      <div class="popup-sub">${loc.city}, ${loc.state}${loc.zip ? " " + loc.zip : ""}${loc.vertical ? " &middot; " + loc.vertical : ""}</div>
+    `);
+    markerLayer.addLayer(marker);
+  });
+}
+
+// --- Fridges: filter + state grouping ---
 let allFridges = [];
 const fridgeFilter = { state: "", status: "", tier: "", query: "" };
 
@@ -501,89 +566,29 @@ function applyFridgeFilter(fitBounds) {
   if (fitBounds) fitMapToFridges(filtered);
 }
 
-// Rolling client-side history of each status's count, sampled once per
-// poll (every 5s) -- a real trend of this session's polling, not a
-// persisted historical series (the backend doesn't store one).
-const HISTORY_LEN = 30;
-const statHistory = { healthy: [], low_stock: [], faulted: [], offline: [] };
+function renderAttentionList(alerts) {
+  const list = document.getElementById("attentionList");
+  const top = alerts
+    .filter(a => a.status === "open")
+    .slice() // already sorted by priority desc by caller
+    .slice(0, 6);
 
-function pushStatHistory(counts) {
-  STATUS_ORDER.forEach(s => {
-    const arr = statHistory[s];
-    arr.push(counts[s] || 0);
-    if (arr.length > HISTORY_LEN) arr.shift();
-  });
-}
-
-function sparklineSVG(values, statusKey) {
-  const w = 100, h = 26;
-  if (values.length < 2) return `<svg class="spark" viewBox="0 0 ${w} ${h}"></svg>`;
-  const max = Math.max(...values, 1);
-  const min = Math.min(...values, 0);
-  const range = Math.max(max - min, 1);
-  const step = w / (values.length - 1);
-  const pts = values.map((v, i) => {
-    const x = i * step;
-    const y = h - ((v - min) / range) * (h - 4) - 2;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
-  const areaPts = `0,${h} ${pts} ${w},${h}`;
-  const colorVar = `var(--${statusKey})`;
-  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-    <polygon points="${areaPts}" style="fill:${colorVar};opacity:0.15"></polygon>
-    <polyline points="${pts}" style="fill:none;stroke:${colorVar};stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"></polyline>
-  </svg>`;
-}
-
-let leafletMap = null;
-let markerLayer = null;
-
-function initMap() {
-  leafletMap = L.map("leafletMap", { worldCopyJump: true }).setView([39.5, -98.35], 4);
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    maxZoom: 18,
-    subdomains: "abcd",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  }).addTo(leafletMap);
-  markerLayer = L.layerGroup().addTo(leafletMap);
-}
-
-function timeAgo(iso) {
-  const d = new Date(iso);
-  const secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
-  if (secs < 60) return secs + "s ago";
-  if (secs < 3600) return Math.floor(secs / 60) + "m ago";
-  if (secs < 86400) return Math.floor(secs / 3600) + "h ago";
-  return Math.floor(secs / 86400) + "d ago";
-}
-
-function renderMap(fridges) {
-  if (!leafletMap) initMap();
-  markerLayer.clearLayers();
-
-  const withLoc = fridges.filter(f => f.location);
-  document.getElementById("mapCount").textContent = withLoc.length
-    ? `${withLoc.length} fridge${withLoc.length === 1 ? "" : "s"} plotted`
-    : "no fridge locations reported yet — run cmd/fridge-sim";
-
-  withLoc.forEach(f => {
-    const icon = L.divIcon({
-      className: "",
-      html: `<div class="fridge-marker ${f.status}"></div>`,
-      iconSize: [14, 14],
-      iconAnchor: [7, 7],
-      popupAnchor: [0, -8],
-    });
-    const loc = f.location;
-    const venue = loc.name || `${loc.city}, ${loc.state}`;
-    const marker = L.marker([loc.lat, loc.lng], { icon });
-    marker.bindPopup(`
-      <div class="popup-title">${f.id} &middot; ${f.status.replace("_", " ")}</div>
-      <div class="popup-sub">${venue}</div>
-      <div class="popup-sub">${loc.city}, ${loc.state}${loc.zip ? " " + loc.zip : ""}${loc.vertical ? " &middot; " + loc.vertical : ""}</div>
-    `);
-    markerLayer.addLayer(marker);
-  });
+  if (!top.length) {
+    list.innerHTML = `<div class="loading">Nothing needs attention right now.</div>`;
+    return;
+  }
+  list.innerHTML = top.map(a => `
+    <div class="attention-item">
+      <div class="info">
+        <div class="id">${a.fridgeId} <span class="badge ${a.severity}" style="margin-left:6px">${a.severity}</span></div>
+        <div class="meta">${a.sourceEvent}${a.blockedReason ? " &middot; blocked: " + a.blockedReason : ""} &middot; ${timeAgo(a.createdAt)}</div>
+      </div>
+      <div style="display:flex;align-items:center;">
+        <span class="priority">${a.priority.toFixed(1)}</span>
+        <button class="action" onclick="assignAlert(${a.id})">Assign</button>
+      </div>
+    </div>
+  `).join("");
 }
 
 async function refreshStatus() {
@@ -616,14 +621,28 @@ async function refreshAlerts() {
   const url = "/fleet/alerts" + (currentAlertFilter ? "?status=" + currentAlertFilter : "");
   const res = await fetch(url);
   if (!res.ok) return;
-  const alerts = (await res.json()) || [];
+  latestAlerts = ((await res.json()) || []).slice().sort((a, b) => b.priority - a.priority);
+
+  renderAttentionList(latestAlerts);
+  renderAlertsTable();
+}
+
+function renderAlertsTable() {
+  let alerts = latestAlerts;
+  if (alertSearchQuery) {
+    const q = alertSearchQuery.toLowerCase();
+    alerts = alerts.filter(a => a.fridgeId.toLowerCase().includes(q));
+  }
 
   const rows = document.getElementById("alertRows");
   if (!alerts.length) {
     rows.innerHTML = `<tr class="empty-row"><td colspan="10">No alerts here.</td></tr>`;
+    document.getElementById("loadMoreRow").style.display = "none";
     return;
   }
-  rows.innerHTML = alerts.map(a => `
+
+  const shown = alerts.slice(0, alertRenderLimit);
+  rows.innerHTML = shown.map(a => `
     <tr>
       <td>${a.id}</td>
       <td>${a.fridgeId}</td>
@@ -644,6 +663,15 @@ async function refreshAlerts() {
       </td>
     </tr>
   `).join("");
+
+  const loadMoreRow = document.getElementById("loadMoreRow");
+  const loadMoreBtn = document.getElementById("loadMoreAlertsBtn");
+  if (alerts.length > shown.length) {
+    loadMoreRow.style.display = "";
+    loadMoreBtn.textContent = `Show more (${shown.length} of ${alerts.length} shown, sorted by priority)`;
+  } else {
+    loadMoreRow.style.display = "none";
+  }
 }
 
 async function assignAlert(id) {
@@ -710,7 +738,19 @@ document.getElementById("alertTabs").addEventListener("click", (e) => {
   document.querySelectorAll("#alertTabs button").forEach(b => b.classList.remove("active"));
   e.target.classList.add("active");
   currentAlertFilter = e.target.dataset.status;
+  alertRenderLimit = ALERT_PAGE_SIZE;
   refreshAlerts();
+});
+
+document.getElementById("alertSearch").addEventListener("input", (e) => {
+  alertSearchQuery = e.target.value;
+  alertRenderLimit = ALERT_PAGE_SIZE;
+  renderAlertsTable();
+});
+
+document.getElementById("loadMoreAlertsBtn").addEventListener("click", () => {
+  alertRenderLimit += ALERT_PAGE_SIZE;
+  renderAlertsTable();
 });
 
 document.getElementById("copilotRefresh").addEventListener("click", refreshCopilot);

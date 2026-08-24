@@ -42,28 +42,34 @@ go run ./cmd/fleet-server
 go run ./cmd/fridge-sim -fridges 10 -transactions 20
 ```
 
-Then open **http://localhost:8080** for a live read/write dashboard — fleet
-overview, a real zoomable/pannable US map (Leaflet + OpenStreetMap tiles) of
-simulated fridge locations color-coded by status and pulsing red for
-faulted, a state/search location filter, per-fridge grid, alerts you can
-assign/resolve by clicking, and a "Regenerate summary" button for the
-copilot narrative. It's a single static page
-(`cmd/fleet-server/dashboard.html`, embedded via `go:embed`) calling the same
-JSON endpoints below — no build step, no separate frontend project. Leaflet
-itself is vendored locally (`cmd/fleet-server/leaflet.js`/`.css`,
-BSD-2-Clause) so the dashboard doesn't depend on a CDN; the map *tiles*
-still come from OpenStreetMap over the network, since there's no reasonable
-way to vendor world imagery.
+Then open **http://localhost:8080** for a live read/write dashboard. It's a
+single static page (`cmd/fleet-server/dashboard.html`, embedded via
+`go:embed`, no build step, no separate frontend project) laid out as a
+sidebar-nav app — four separate pages instead of one long scroll, since at
+real fleet scale a single page of everything stops being usable:
 
-At real scale (thousands of fridges), a flat list is unusable, so the
-"Fridges" section groups by state (collapsible, small states auto-expanded)
-and the filter bar (state, status, and criticality-tier dropdowns, plus
-free-text search over id/city/venue name — all combine with AND) narrows
-the fridge grid and the map together — selecting a state zooms the map to
-fit just that state's fridges. Verified against the full 2,326-location
-dataset: `-fridges 2326` populates every
-real location, and the filter correctly narrows it down (e.g. selecting
-"CT" shows exactly its 5 real fridges and zooms the map to Connecticut).
+- **Dashboard** — fleet health stat cards (with a live rolling sparkline
+  each), the ops copilot narrative, and a "Needs attention" panel showing
+  the highest-priority open/blocked alerts with one-click Assign.
+- **Fleet Map** — a real zoomable/pannable US map (Leaflet + CARTO light
+  tiles) of every simulated fridge at its real location, color-coded by
+  status and pulsing for faulted.
+- **Fridges** — at 2,326 real locations, a flat list is unusable, so this
+  groups by state (collapsible, small states auto-expanded) with a filter
+  bar (state, status, criticality-tier dropdowns + free-text search over
+  id/city/venue name, all combining with AND) that narrows the grid and the
+  map together — selecting a state zooms the map to fit it. Verified
+  end-to-end against the full dataset (e.g. selecting "CT" shows exactly
+  its 5 real fridges).
+- **Alerts** — the full triage table (assign/resolve by clicking), sorted
+  by priority, with a fridge-id search and a "show more" cap (150 at a
+  time) since an unpaginated table hits the same at-scale problem as the
+  fridge list did (1,000+ rows otherwise).
+
+Leaflet itself is vendored locally (`cmd/fleet-server/leaflet.js`/`.css`,
+BSD-2-Clause) so the dashboard doesn't depend on a CDN; the map *tiles*
+still come from CARTO/OpenStreetMap over the network, since there's no
+reasonable way to vendor world imagery.
 
 `cmd/fridge-sim` pins each simulated fridge to one of Farmer's Fridge's own
 **real, individual fridge locations** — 2,326 of them, with exact
