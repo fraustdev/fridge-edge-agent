@@ -240,10 +240,28 @@
   .source-badge { font-size: 11px; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 600; }
   .source-badge.llm { background: var(--accent-bg); color: var(--accent); }
   .source-badge.heuristic { background: var(--offline-bg); color: var(--offline); }
-  .narrative { font-size: 14px; line-height: 1.6; }
-  .narrative h4 { font-family: var(--font-head); margin: 14px 0 4px; }
-  .narrative p { margin: 6px 0; }
-  .stats-line { color: var(--muted); font-size: 12px; margin-top: 10px; font-family: var(--font-mono); }
+
+  .copilot-headline { font-family: var(--font-head); font-size: 15px; font-weight: 500; color: var(--text); margin: 2px 0 18px; }
+
+  .copilot-hero { display: flex; gap: 28px; margin-bottom: 20px; }
+  .hero-stat .n { font-family: var(--font-mono); font-size: 26px; font-weight: 500; color: var(--text); line-height: 1; }
+  .hero-stat .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 5px; }
+
+  .copilot-chart { margin-bottom: 6px; }
+  .chart-row { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 12px; }
+  .chart-row .chart-label { width: 100px; flex-shrink: 0; color: var(--muted); text-transform: capitalize; }
+  .chart-row .chart-track { flex: 1; background: var(--bg); border-radius: 4px; height: 8px; overflow: hidden; }
+  .chart-row .chart-fill { height: 100%; border-radius: 4px; min-width: 2px; }
+  .chart-row .chart-count { width: 30px; text-align: right; font-family: var(--font-mono); color: var(--text); flex-shrink: 0; }
+
+  .copilot-actions-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 16px 0 8px; }
+  .action-item-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    border: 1px solid var(--faulted); background: var(--faulted-bg);
+    border-radius: 8px; padding: 7px 11px; margin-bottom: 6px; font-size: 12px;
+  }
+  .action-item-row .aid-main { font-family: var(--font-mono); color: var(--text); }
+  .action-item-row .aid-reason { color: var(--faulted); font-weight: 600; white-space: nowrap; }
 
   .refresh-btn {
     background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
@@ -288,7 +306,6 @@
             <button class="refresh-btn" id="copilotRefresh">Regenerate summary</button>
           </div>
           <div id="copilotBody" class="loading">Not loaded yet — click "Regenerate summary".</div>
-          <div class="stats-line" id="copilotStats"></div>
         </div>
         <div class="card">
           <h2 style="margin-top:0">Needs attention</h2>
@@ -716,41 +733,71 @@ async function assignNext() {
   return data.assigned;
 }
 
-function renderNarrative(text) {
-  const lines = (text || "").split("\n");
-  let html = "";
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    if (line.startsWith("# ")) {
-      html += `<h4>${line.slice(2)}</h4>`;
-    } else {
-      html += `<p>${line.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</p>`;
-    }
-  }
-  return html;
+// event type -> bar color, reusing the same status-color semantics used
+// everywhere else (faults=faulted, low-stock-flavored events=low_stock,
+// door anomalies get the copilot panel's own frost-cyan accent since they
+// don't map cleanly onto a fridge-health color).
+const EVENT_COLOR = {
+  vend_completed: "var(--healthy)",
+  hardware_fault: "var(--faulted)",
+  restock_alert: "var(--low_stock)",
+  door_anomaly: "var(--accent)",
+};
+
+function renderCopilotChart(eventCounts) {
+  const entries = Object.entries(eventCounts || {}).sort((a, b) => b[1] - a[1]);
+  const max = Math.max(1, ...entries.map(([, c]) => c));
+  return entries.map(([type, count]) => `
+    <div class="chart-row">
+      <div class="chart-label">${type.replace(/_/g, " ")}</div>
+      <div class="chart-track"><div class="chart-fill" style="width:${(count / max * 100).toFixed(1)}%;background:${EVENT_COLOR[type] || "var(--muted)"}"></div></div>
+      <div class="chart-count">${count}</div>
+    </div>
+  `).join("");
+}
+
+function renderCopilotActions(items) {
+  if (!items || !items.length) return "";
+  const rows = items.map(a => `
+    <div class="action-item-row">
+      <span class="aid-main">${a.FridgeID} &middot; slot ${a.Slot || "—"} &middot; ${timeAgo(a.Timestamp)}</span>
+      <span class="aid-reason">${a.Reason}</span>
+    </div>
+  `).join("");
+  return `<div class="copilot-actions-label">Needs review</div>${rows}`;
+}
+
+function renderCopilot(summary) {
+  const badge = document.getElementById("sourceBadge");
+  badge.textContent = summary.Source === "llm" ? "LLM" : "Heuristic fallback";
+  badge.className = "source-badge " + (summary.Source === "llm" ? "llm" : "heuristic");
+
+  const body = document.getElementById("copilotBody");
+  body.className = "";
+  body.innerHTML = `
+    <div class="copilot-headline">${summary.Headline}</div>
+    <div class="copilot-hero">
+      <div class="hero-stat"><div class="n">${summary.TotalEvents}</div><div class="label">Total events</div></div>
+      <div class="hero-stat"><div class="n">${summary.FridgeCount}</div><div class="label">Fridges</div></div>
+    </div>
+    <div class="copilot-chart">${renderCopilotChart(summary.EventCounts)}</div>
+    ${renderCopilotActions(summary.ActionItems)}
+  `;
 }
 
 async function refreshCopilot() {
   const body = document.getElementById("copilotBody");
-  const stats = document.getElementById("copilotStats");
   const badge = document.getElementById("sourceBadge");
   body.textContent = "Generating summary…";
   body.className = "loading";
-  stats.textContent = "";
   badge.textContent = "";
 
   try {
     const res = await fetch("/fleet/copilot/summary");
     const data = await res.json();
-    body.className = "narrative";
-    body.innerHTML = renderNarrative(data.Narrative);
-    badge.textContent = data.Source === "llm" ? "LLM" : "Heuristic fallback";
-    badge.className = "source-badge " + (data.Source === "llm" ? "llm" : "heuristic");
-    stats.textContent = `${data.TotalEvents} events · ${data.FridgesAffected} fridges · ` +
-      `${data.HardwareFaults} hardware faults · ${data.RestockAlerts} restock alerts · ` +
-      `${data.DoorAnomalies} door anomalies · ${data.ChargedNoItemCount} charged-no-item cases · ` +
-      `generated ${new Date(data.GeneratedAt).toLocaleTimeString()}`;
+    renderCopilot(data);
   } catch (e) {
+    body.className = "loading";
     body.textContent = "Failed to load summary: " + e;
   }
 }

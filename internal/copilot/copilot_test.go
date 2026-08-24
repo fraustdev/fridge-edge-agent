@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 )
@@ -23,39 +22,50 @@ func sampleEvents() []EventSummaryInput {
 	}
 }
 
-func TestComputeStats(t *testing.T) {
+func TestComputeSummary(t *testing.T) {
 	events := sampleEvents()
-	report := computeStats(events, fixedNow())
+	summary := computeSummary(events)
 
-	if report.TotalEvents != 3 {
-		t.Fatalf("TotalEvents = %d, want 3", report.TotalEvents)
+	if summary.TotalEvents != 3 {
+		t.Fatalf("TotalEvents = %d, want 3", summary.TotalEvents)
 	}
-	if report.FridgesAffected != 2 {
-		t.Fatalf("FridgesAffected = %d, want 2", report.FridgesAffected)
+	if summary.FridgeCount != 2 {
+		t.Fatalf("FridgeCount = %d, want 2", summary.FridgeCount)
 	}
-	if report.HardwareFaults != 1 {
-		t.Fatalf("HardwareFaults = %d, want 1", report.HardwareFaults)
+	if summary.EventCounts["hardware_fault"] != 1 {
+		t.Fatalf("EventCounts[hardware_fault] = %d, want 1", summary.EventCounts["hardware_fault"])
 	}
-	if report.ChargedNoItemCount != 1 {
-		t.Fatalf("ChargedNoItemCount = %d, want 1", report.ChargedNoItemCount)
+	if summary.EventCounts["vend_completed"] != 2 {
+		t.Fatalf("EventCounts[vend_completed] = %d, want 2", summary.EventCounts["vend_completed"])
 	}
-	if len(report.ChargedNoItemDetails) != 1 || !strings.Contains(report.ChargedNoItemDetails[0], "f2") {
-		t.Fatalf("ChargedNoItemDetails = %v, want a detail mentioning f2", report.ChargedNoItemDetails)
+	// known event types with zero occurrences must still appear.
+	if _, ok := summary.EventCounts["restock_alert"]; !ok {
+		t.Fatal("EventCounts missing restock_alert (should be present at 0)")
+	}
+	if summary.EventCounts["restock_alert"] != 0 {
+		t.Fatalf("EventCounts[restock_alert] = %d, want 0", summary.EventCounts["restock_alert"])
+	}
+	if len(summary.ActionItems) != 1 {
+		t.Fatalf("len(ActionItems) = %d, want 1", len(summary.ActionItems))
+	}
+	item := summary.ActionItems[0]
+	if item.FridgeID != "f2" || item.Slot != "B1" || item.Reason == "" {
+		t.Fatalf("ActionItems[0] = %+v, want fridge f2 slot B1 with a reason", item)
 	}
 }
 
 func TestSummarize_NoAPIKey_UsesHeuristic(t *testing.T) {
 	s := &Summarizer{APIKey: "", Now: fixedNow}
-	report := s.Summarize(context.Background(), sampleEvents())
+	summary := s.Summarize(context.Background(), sampleEvents())
 
-	if report.Source != "heuristic" {
-		t.Fatalf("Source = %q, want heuristic", report.Source)
+	if summary.Source != "heuristic" {
+		t.Fatalf("Source = %q, want heuristic", summary.Source)
 	}
-	if !strings.Contains(report.Narrative, "f2") {
-		t.Fatalf("heuristic narrative must mention the charged-no-item fridge, got: %s", report.Narrative)
+	if summary.Headline == "" {
+		t.Fatal("heuristic Headline must not be empty")
 	}
-	if report.ChargedNoItemCount != 1 {
-		t.Fatalf("ChargedNoItemCount = %d, want 1", report.ChargedNoItemCount)
+	if len(summary.ActionItems) != 1 || summary.ActionItems[0].FridgeID != "f2" {
+		t.Fatalf("ActionItems = %+v, want one entry for fridge f2", summary.ActionItems)
 	}
 }
 
@@ -64,7 +74,7 @@ func TestSummarize_LLM(t *testing.T) {
 		name          string
 		serverHandler http.HandlerFunc
 		wantSource    string
-		wantNarrative string
+		wantHeadline  string
 	}{
 		{
 			name: "successful LLM call is used",
@@ -77,12 +87,12 @@ func TestSummarize_LLM(t *testing.T) {
 				}
 				resp := messagesResponse{
 					StopReason: "end_turn",
-					Content:    []contentBlock{{Type: "text", Text: "LLM narrative mentioning fridge f2."}},
+					Content:    []contentBlock{{Type: "text", Text: "Fleet is stable, one case needs manual review."}},
 				}
 				json.NewEncoder(w).Encode(resp)
 			},
-			wantSource:    "llm",
-			wantNarrative: "LLM narrative mentioning fridge f2.",
+			wantSource:   "llm",
+			wantHeadline: "Fleet is stable, one case needs manual review.",
 		},
 		{
 			name: "refusal falls back to heuristic",
@@ -121,18 +131,18 @@ func TestSummarize_LLM(t *testing.T) {
 				HTTPClient: server.Client(),
 				Now:        fixedNow,
 			}
-			narrative, err := callLLMAt(s, server.URL, sampleEvents())
+			headline, err := callLLMAt(s, server.URL, sampleEvents())
 			if tt.wantSource == "heuristic" {
 				if err == nil {
-					t.Fatalf("expected callLLM to fail so Summarize would fall back, got narrative %q", narrative)
+					t.Fatalf("expected callLLM to fail so Summarize would fall back, got headline %q", headline)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatalf("callLLM() unexpected error: %v", err)
 			}
-			if narrative != tt.wantNarrative {
-				t.Fatalf("narrative = %q, want %q", narrative, tt.wantNarrative)
+			if headline != tt.wantHeadline {
+				t.Fatalf("headline = %q, want %q", headline, tt.wantHeadline)
 			}
 		})
 	}
@@ -144,5 +154,5 @@ func callLLMAt(s *Summarizer, url string, events []EventSummaryInput) (string, e
 	orig := apiURL
 	apiURL = url
 	defer func() { apiURL = orig }()
-	return s.callLLM(context.Background(), events, computeStats(events, s.now()))
+	return s.callLLM(context.Background(), computeSummary(events))
 }

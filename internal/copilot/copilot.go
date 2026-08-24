@@ -1,7 +1,7 @@
 // Package copilot generates fleet-wide ops summaries from a batch of events.
 // It sits outside the vend/dispatch decision path entirely — it is a
 // post-hoc reporting layer, never a controller. When no API key is set (or
-// the API call fails), it falls back to a deterministic heuristic summary
+// the API call fails), it falls back to a generic heuristic headline
 // instead of failing the request.
 package copilot
 
@@ -26,6 +26,11 @@ const (
 // apiURL is a var (not const) so tests can point it at an httptest.Server.
 var apiURL = "https://api.anthropic.com/v1/messages"
 
+// knownEventTypes always appear in Summary.EventCounts, even at zero, so
+// the dashboard's bar chart has a stable, complete set of bars rather than
+// only whatever event types happened to occur in this particular batch.
+var knownEventTypes = []string{"vend_completed", "hardware_fault", "door_anomaly", "restock_alert"}
+
 // EventSummaryInput is copilot's own view of a fleet event, decoupled from
 // the fleet package's types so this package has no dependency on it.
 type EventSummaryInput struct {
@@ -36,24 +41,32 @@ type EventSummaryInput struct {
 	Payload   map[string]any
 }
 
-// Report is a fleet-wide ops summary. ChargedNoItemCount/Details are
-// computed deterministically in Go, not parsed from the LLM response, so
-// the one correctness property that matters (never hide a possible
-// charged-but-no-item case) holds even if the LLM call fails or is skipped.
-type Report struct {
-	GeneratedAt          time.Time
-	TotalEvents          int
-	FridgesAffected      int
-	HardwareFaults       int
-	RestockAlerts        int
-	DoorAnomalies        int
-	ChargedNoItemCount   int
-	ChargedNoItemDetails []string
-	Narrative            string
-	Source               string // "llm" or "heuristic"
+// ActionItem is one charged-but-not-dispensed case that needs a human to
+// reconcile it.
+type ActionItem struct {
+	FridgeID  string
+	Slot      string
+	Timestamp time.Time
+	Reason    string
 }
 
-// Summarizer produces Reports from event batches.
+// Summary is a fleet-wide ops summary. EventCounts/TotalEvents/FridgeCount/
+// ActionItems are computed deterministically in Go, never parsed from the
+// LLM response, so the one correctness property that matters (never hide a
+// possible charged-but-no-item case) holds even if the LLM call fails, is
+// skipped, or writes something misleading. The LLM's only job is Headline
+// — a short interpretive sentence — which is display framing, not a
+// correctness surface.
+type Summary struct {
+	Headline    string
+	EventCounts map[string]int
+	TotalEvents int
+	FridgeCount int
+	ActionItems []ActionItem
+	Source      string // "llm" or "heuristic"
+}
+
+// Summarizer produces Summaries from event batches.
 type Summarizer struct {
 	APIKey     string
 	Model      string
@@ -78,73 +91,57 @@ func (s *Summarizer) now() time.Time {
 	return time.Now()
 }
 
-// Summarize builds a Report for events. It always attempts the LLM call
-// first when an API key is present; any failure (network, non-2xx, refusal,
-// empty output) falls back to the heuristic narrative rather than erroring.
-func (s *Summarizer) Summarize(ctx context.Context, events []EventSummaryInput) Report {
-	report := computeStats(events, s.now())
+// Summarize builds a Summary for events. EventCounts/TotalEvents/
+// FridgeCount/ActionItems are always computed the same way, LLM or not.
+// Summarize always attempts the LLM call first when an API key is present
+// (to write Headline); any failure (network, non-2xx, refusal, empty
+// output) falls back to a generic heuristic headline rather than erroring.
+func (s *Summarizer) Summarize(ctx context.Context, events []EventSummaryInput) Summary {
+	summary := computeSummary(events)
 
 	if s.APIKey == "" {
-		report.Narrative = heuristicNarrative(report)
-		report.Source = "heuristic"
-		return report
+		summary.Headline = "Fleet summary"
+		summary.Source = "heuristic"
+		return summary
 	}
 
-	narrative, err := s.callLLM(ctx, events, report)
+	headline, err := s.callLLM(ctx, summary)
 	if err != nil {
-		report.Narrative = heuristicNarrative(report)
-		report.Source = "heuristic"
-		return report
+		summary.Headline = "Fleet summary"
+		summary.Source = "heuristic"
+		return summary
 	}
 
-	report.Narrative = narrative
-	report.Source = "llm"
-	return report
+	summary.Headline = headline
+	summary.Source = "llm"
+	return summary
 }
 
-func computeStats(events []EventSummaryInput, now time.Time) Report {
-	report := Report{GeneratedAt: now, TotalEvents: len(events)}
+func computeSummary(events []EventSummaryInput) Summary {
+	summary := Summary{EventCounts: map[string]int{}, TotalEvents: len(events)}
+	for _, t := range knownEventTypes {
+		summary.EventCounts[t] = 0
+	}
 
 	fridges := make(map[string]struct{})
 	for _, e := range events {
 		fridges[e.FridgeID] = struct{}{}
+		summary.EventCounts[e.Type]++
 
-		switch e.Type {
-		case "hardware_fault":
-			report.HardwareFaults++
-		case "restock_alert":
-			report.RestockAlerts++
-		case "door_anomaly":
-			report.DoorAnomalies++
-		case "vend_completed":
+		if e.Type == "vend_completed" {
 			if outcome, _ := e.Payload["outcome"].(string); outcome == "refund_pending" {
-				report.ChargedNoItemCount++
-				report.ChargedNoItemDetails = append(report.ChargedNoItemDetails, fmt.Sprintf(
-					"fridge %s slot %s at %s", e.FridgeID, e.SlotID, e.Timestamp.Format(time.RFC3339)))
+				summary.ActionItems = append(summary.ActionItems, ActionItem{
+					FridgeID:  e.FridgeID,
+					Slot:      e.SlotID,
+					Timestamp: e.Timestamp,
+					Reason:    "charged, not dispensed",
+				})
 			}
 		}
 	}
-	report.FridgesAffected = len(fridges)
+	summary.FridgeCount = len(fridges)
 
-	return report
-}
-
-func heuristicNarrative(r Report) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Fleet summary: %d events across %d fridge(s). ", r.TotalEvents, r.FridgesAffected)
-	fmt.Fprintf(&sb, "%d hardware fault(s), %d restock alert(s), %d door anomaly(ies). ",
-		r.HardwareFaults, r.RestockAlerts, r.DoorAnomalies)
-
-	if r.ChargedNoItemCount == 0 {
-		sb.WriteString("No transactions were left in a charged-but-no-item state.")
-		return sb.String()
-	}
-
-	fmt.Fprintf(&sb, "%d transaction(s) may have charged a customer without dispensing an item: ",
-		r.ChargedNoItemCount)
-	sb.WriteString(strings.Join(r.ChargedNoItemDetails, "; "))
-	sb.WriteString(". These need manual reconciliation.")
-	return sb.String()
+	return summary
 }
 
 type messagesRequest struct {
@@ -175,13 +172,16 @@ type errorResponse struct {
 	} `json:"error"`
 }
 
-func (s *Summarizer) callLLM(ctx context.Context, events []EventSummaryInput, stats Report) (string, error) {
+// callLLM asks Claude for a single headline sentence, given the already-
+// computed summary stats -- not the raw event list. The LLM never sees
+// (and can't influence) anything but the wording of that one sentence.
+func (s *Summarizer) callLLM(ctx context.Context, summary Summary) (string, error) {
 	reqBody, err := json.Marshal(messagesRequest{
 		Model:     s.Model,
-		MaxTokens: 512,
+		MaxTokens: 100,
 		Messages: []requestMessage{{
 			Role:    "user",
-			Content: buildPrompt(events, stats),
+			Content: buildHeadlinePrompt(summary),
 		}},
 	})
 	if err != nil {
@@ -235,30 +235,26 @@ func (s *Summarizer) callLLM(ctx context.Context, events []EventSummaryInput, st
 	return text, nil
 }
 
-func buildPrompt(events []EventSummaryInput, stats Report) string {
+func buildHeadlinePrompt(s Summary) string {
 	var sb strings.Builder
-	sb.WriteString("You are an ops copilot summarizing recent activity across a fleet of smart vending fridges. ")
-	sb.WriteString("Write a short, plain-language summary (3-5 sentences) an operations team can scan quickly. ")
-	sb.WriteString("You MUST explicitly call out every transaction where a customer may have been charged without receiving an item, naming the fridge, slot, and time for each. ")
-	sb.WriteString("Do not omit or downplay these even if there are many other events.\n\n")
+	sb.WriteString("You are an ops copilot for a fleet of smart vending fridges. ")
+	sb.WriteString("Write exactly one short, plain-English sentence (no more than ~20 words) summarizing the current state of the fleet, suitable as a dashboard headline. ")
+	sb.WriteString("Interpret the numbers rather than reciting them verbatim -- e.g. \"Fault rate is higher than usual this hour\" or \"Fleet is stable, one case needs manual review.\" ")
+	sb.WriteString("If there are any charged-but-not-dispensed cases, your sentence must acknowledge that manual review is needed, but do not enumerate them individually -- they're shown separately as a structured list.\n\n")
 
-	fmt.Fprintf(&sb, "Stats: %d total events, %d fridges affected, %d hardware faults, %d restock alerts, %d door anomalies, %d charged-no-item case(s).\n",
-		stats.TotalEvents, stats.FridgesAffected, stats.HardwareFaults, stats.RestockAlerts, stats.DoorAnomalies, stats.ChargedNoItemCount)
+	fmt.Fprintf(&sb, "Total events: %d across %d fridge(s).\n", s.TotalEvents, s.FridgeCount)
 
-	if stats.ChargedNoItemCount > 0 {
-		sb.WriteString("Charged-no-item cases: ")
-		sb.WriteString(strings.Join(stats.ChargedNoItemDetails, "; "))
-		sb.WriteString("\n")
+	sb.WriteString("Event counts by type:\n")
+	types := make([]string, 0, len(s.EventCounts))
+	for t := range s.EventCounts {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	for _, t := range types {
+		fmt.Fprintf(&sb, "- %s: %d\n", t, s.EventCounts[t])
 	}
 
-	sb.WriteString("\nEvents:\n")
-	sorted := make([]EventSummaryInput, len(events))
-	copy(sorted, events)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Timestamp.Before(sorted[j].Timestamp) })
-	for _, e := range sorted {
-		fmt.Fprintf(&sb, "- [%s] fridge=%s slot=%s type=%s payload=%v\n",
-			e.Timestamp.Format(time.RFC3339), e.FridgeID, e.SlotID, e.Type, e.Payload)
-	}
+	fmt.Fprintf(&sb, "\nCharged-but-not-dispensed cases needing manual review: %d\n", len(s.ActionItems))
 
 	return sb.String()
 }

@@ -49,8 +49,11 @@ sidebar-nav app — four separate pages instead of one long scroll, since at
 real fleet scale a single page of everything stops being usable:
 
 - **Dashboard** — fleet health stat cards (with a live rolling sparkline
-  each), the ops copilot narrative, and a "Needs attention" panel showing
-  the highest-priority open/blocked alerts with one-click Assign.
+  each), a structured ops copilot panel (one-line LLM headline, a total-
+  events/fridges hero stat row, a bar chart of event counts by type, and a
+  distinctly-bordered callout per charged-but-not-dispensed case), and a
+  "Needs attention" panel showing the highest-priority open/blocked alerts
+  with one-click Assign.
 - **Fleet Map** — a real zoomable/pannable US map (Leaflet + CARTO dark
   tiles) of every simulated fridge at its real location, color-coded by
   status and pulsing for faulted.
@@ -109,7 +112,7 @@ curl http://localhost:8080/fleet/fridges/fridge-001    # per-fridge drill-down
 curl "http://localhost:8080/fleet/alerts?status=open"  # open alerts
 curl -X POST http://localhost:8080/fleet/alerts/1/assign
 curl -X POST http://localhost:8080/fleet/alerts/1/resolve
-curl http://localhost:8080/fleet/copilot/summary       # fleet-wide ops narrative
+curl http://localhost:8080/fleet/copilot/summary       # fleet-wide ops summary (structured)
 ```
 
 Config is via environment variables: `FLEET_SERVER_ADDR` (default `:8080`),
@@ -129,7 +132,7 @@ carrying over v1's "no API key needed" fallback behavior).
 | `POST` | `/fleet/alerts/{id}/assign` | Assign one alert to the next tech eligible for its venue (round-robin within that eligible subset) |
 | `POST` | `/fleet/alerts/{id}/resolve` | Move an alert to `resolved` |
 | `POST` | `/fleet/alerts/assign-next` | Assign the single highest-priority open alert fleet-wide (see "Venue-aware dispatch" below) |
-| `GET` | `/fleet/copilot/summary` | Fleet-wide LLM (or heuristic) ops narrative over recent events |
+| `GET` | `/fleet/copilot/summary` | Structured fleet-wide summary (headline, event counts, action items) over recent events |
 
 A fridge is marked **offline** at read time if it hasn't reported an event
 in `fleet.OfflineThreshold` (15 minutes) — this isn't a stored status, since
@@ -142,12 +145,13 @@ no record of it. `internal/vend` classifies every vend attempt into
 `success`, `failed_no_charge` (never charged), `refunded` (charged, no item,
 refund confirmed), or `refund_pending` (charged, no item, refund itself
 failed — needs a human). The fleet backend never derives this from LLM
-output: `internal/copilot`'s `Report.ChargedNoItemCount` /
-`ChargedNoItemDetails` are computed deterministically in Go from the event
-payloads, so the "did the copilot summary correctly flag every
-charged-no-item case" guarantee holds even if the LLM call fails, is
-skipped (no API key), or writes a bad narrative — the narrative is framing,
-the structured fields are the correctness surface.
+output: `internal/copilot`'s `Summary.ActionItems` (every charged-but-not-
+dispensed case) and `EventCounts`/`TotalEvents`/`FridgeCount` are computed
+deterministically in Go from the event payloads. The LLM's only job is
+`Summary.Headline` — one interpretive sentence — so the "did the copilot
+correctly flag every charged-no-item case" guarantee holds even if the LLM
+call fails, is skipped (no API key), or writes a bad headline; the headline
+is framing, the structured fields are the correctness surface.
 
 ## Venue-aware dispatch (v3, `internal/fleet/venue.go` + `techs.go`)
 
