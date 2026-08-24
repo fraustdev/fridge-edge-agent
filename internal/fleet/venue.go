@@ -67,9 +67,14 @@ var severityWeight = map[AlertSeverity]float64{
 }
 
 const (
-	maxAgeMinutes = 120 // age contribution is capped so it can't cross a tier boundary
-	ageWeight     = 0.1 // max age contribution: maxAgeMinutes * ageWeight = 12
-	peakBoost     = 20
+	// maxAgeContribution is age's asymptotic ceiling (see ageContribution) --
+	// age approaches it but never reaches it, so it can't cross a tier
+	// boundary no matter how old an alert gets.
+	maxAgeContribution = 12.0
+	// ageHalfLifeMinutes is how long it takes age's contribution to reach
+	// half of maxAgeContribution -- tunes how quickly age matters early on.
+	ageHalfLifeMinutes = 60.0
+	peakBoost          = 20
 )
 
 // isPeakWindow is a deliberately simple, single-timezone (UTC) heuristic --
@@ -81,26 +86,37 @@ func isPeakWindow(t time.Time) bool {
 	return (h >= 11 && h < 14) || (h >= 21 && h < 24)
 }
 
+// ageContribution is a saturating (never-flat) curve: it keeps increasing
+// with age, strictly, for any two different durations, but approaches
+// maxAgeContribution asymptotically rather than hitting a hard cap. A
+// linear-then-capped curve makes every sufficiently-old alert of the same
+// tier/severity score identically -- at fleet scale that turns into a large
+// tie (indistinguishable "most urgent" alerts) purely because they all
+// crossed the same age threshold. The asymptote keeps the same tier-safety
+// guarantee (see priorityScore) while (almost) never producing an exact
+// tie between two alerts of different ages.
+func ageContribution(openSince time.Duration) float64 {
+	ageMinutes := openSince.Minutes()
+	if ageMinutes <= 0 {
+		return 0
+	}
+	return maxAgeContribution * ageMinutes / (ageMinutes + ageHalfLifeMinutes)
+}
+
 // priorityScore combines a venue's criticality tier (dominant), the
 // alert's own severity and age (secondary, tie-breaking factors), and an
 // airport peak-window boost (tertiary). tierWeight's gaps (100/50/10) are
-// wide enough that severityWeight's max (15) + the capped age contribution
-// (12) + peakBoost (20) -- at most 47 -- can never let a lower-tier alert
-// outrank a higher-tier one: a maxed-out low-tier score (10+15+12=37) still
-// loses to a bare-minimum medium-tier score (50), and a maxed-out medium
-// (50+15+12+20=97, though peak only applies to Airport/high-tier in
+// wide enough that severityWeight's max (15) + age's asymptotic ceiling
+// (12, never actually reached) + peakBoost (20) -- at most 47 -- can never
+// let a lower-tier alert outrank a higher-tier one: a low-tier score
+// approaching its ceiling (10+15+<12=<37) still loses to a bare-minimum
+// medium-tier score (50), and a medium-tier score approaching its ceiling
+// (50+15+<12+20=<97, though peak only applies to Airport/high-tier in
 // practice) still loses to a bare-minimum high-tier score (100).
 func priorityScore(profile VenueProfile, severity AlertSeverity, openSince time.Duration, now time.Time) float64 {
 	score := tierWeight[profile.Tier]
 	score += severityWeight[severity]
-
-	ageMinutes := openSince.Minutes()
-	if ageMinutes > maxAgeMinutes {
-		ageMinutes = maxAgeMinutes
-	}
-	if ageMinutes > 0 {
-		score += ageMinutes * ageWeight
-	}
+	score += ageContribution(openSince)
 
 	if profile.PeakEligible && isPeakWindow(now) {
 		score += peakBoost
