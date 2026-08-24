@@ -626,26 +626,47 @@ function applyFridgeFilter(fitBounds) {
 let attentionPage = 0;
 const ATTENTION_PAGE_SIZE = 10;
 
+// One fridge can accumulate several open alerts (a jam last week, a stuck
+// refund yesterday, ...). Showing each as its own row made the same fridge
+// appear over and over. Group by fridge instead: one row per fridge, driven
+// by its single highest-priority open alert (that's the one Assign acts
+// on), with a count badge when there's more than one so "why" is still
+// visible without listing every alert individually.
+function groupAlertsByFridge(openAlerts) {
+  const byFridge = new Map();
+  for (const a of openAlerts) {
+    const existing = byFridge.get(a.fridgeId);
+    if (!existing) {
+      byFridge.set(a.fridgeId, { fridgeId: a.fridgeId, top: a, all: [a] });
+    } else {
+      existing.all.push(a);
+      if (a.priority > existing.top.priority) existing.top = a;
+    }
+  }
+  return Array.from(byFridge.values()).sort((a, b) => b.top.priority - a.top.priority);
+}
+
 function renderAttentionList(alerts) {
   const list = document.getElementById("attentionList");
   const pagerEl = document.getElementById("attentionPager");
   const open = alerts.filter(a => a.status === "open"); // already sorted by priority desc by caller
+  const grouped = groupAlertsByFridge(open);
 
-  if (!open.length) {
+  if (!grouped.length) {
     list.innerHTML = `<div class="loading">Nothing needs attention right now.</div>`;
     pagerEl.innerHTML = "";
     document.getElementById("attentionLabel").textContent = "Needs attention";
     return;
   }
 
-  const totalPages = Math.max(1, Math.ceil(open.length / ATTENTION_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(grouped.length / ATTENTION_PAGE_SIZE));
   if (attentionPage >= totalPages) attentionPage = totalPages - 1;
   if (attentionPage < 0) attentionPage = 0;
 
   const start = attentionPage * ATTENTION_PAGE_SIZE;
-  const pageItems = open.slice(start, start + ATTENTION_PAGE_SIZE);
+  const pageItems = grouped.slice(start, start + ATTENTION_PAGE_SIZE);
 
-  document.getElementById("attentionLabel").textContent = `Needs attention (${open.length})`;
+  document.getElementById("attentionLabel").textContent = `Needs attention (${grouped.length} fridge${grouped.length === 1 ? "" : "s"})`;
   pagerEl.innerHTML = `
     <div class="pager">
       <button class="pager-btn" onclick="changeAttentionPage(-1)" ${attentionPage === 0 ? "disabled" : ""}>&#8249;</button>
@@ -654,18 +675,25 @@ function renderAttentionList(alerts) {
     </div>
   `;
 
-  list.innerHTML = pageItems.map(a => `
+  list.innerHTML = pageItems.map(g => {
+    const a = g.top;
+    const reasons = [...new Set(g.all.map(x => x.sourceEvent))].join(", ");
+    const countBadge = g.all.length > 1
+      ? `<span class="badge offline" style="margin-left:6px">${g.all.length} issues</span>`
+      : "";
+    return `
     <div class="attention-item">
       <div class="info">
-        <div class="id">${a.fridgeId} <span class="badge ${a.severity}" style="margin-left:6px">${a.severity}</span></div>
-        <div class="meta">${a.sourceEvent}${a.blockedReason ? " &middot; blocked: " + a.blockedReason : ""} &middot; ${timeAgo(a.createdAt)}</div>
+        <div class="id">${g.fridgeId} <span class="badge ${a.severity}" style="margin-left:6px">${a.severity}</span>${countBadge}</div>
+        <div class="meta">${reasons}${a.blockedReason ? " &middot; blocked: " + a.blockedReason : ""} &middot; ${timeAgo(a.createdAt)}</div>
       </div>
       <div style="display:flex;align-items:center;">
         <span class="priority">${a.priority.toFixed(1)}</span>
         <button class="action" onclick="assignAlert(${a.id})">Assign</button>
       </div>
     </div>
-  `).join("");
+  `;
+  }).join("");
 }
 
 function changeAttentionPage(delta) {
