@@ -42,6 +42,7 @@ const (
 // it — but a national fleet is easier to make sense of on a map than in a
 // flat list.
 type Location struct {
+	Address  string  `json:"address,omitempty"` // full street address, e.g. "309 Cedar Ln, Florence, NJ 08518"
 	City     string  `json:"city"`
 	State    string  `json:"state"`
 	Zip      string  `json:"zip,omitempty"`

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"math/rand"
 	"net/http"
@@ -32,12 +33,6 @@ func main() {
 
 	rng := rand.New(rand.NewSource(*seed))
 
-	// Shuffle a copy so small runs (the common case) get a geographic spread
-	// instead of landing on whatever order the source data happens to be in.
-	pool := make([]location, len(realLocations))
-	copy(pool, realLocations)
-	rng.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
-
 	publisher := &httpEventPublisher{
 		baseURL:   *serverURL,
 		client:    &http.Client{Timeout: 5 * time.Second},
@@ -49,7 +44,7 @@ func main() {
 
 	for i := 0; i < *fridgeCount; i++ {
 		fridgeID := fmt.Sprintf("fridge-%03d", i+1)
-		publisher.locations[fridgeID] = pool[i%len(pool)]
+		publisher.locations[fridgeID] = locationForFridge(fridgeID)
 		sim := dispenser.NewSimulator(map[string]int{
 			"A1": 20, "A2": 20, "A3": 20, "B1": 20, "B2": 20,
 		})
@@ -105,6 +100,7 @@ type location struct {
 	Name     string  `json:"name"`
 	Vertical string  `json:"vertical"`
 	Access   string  `json:"access"`
+	Address  string  `json:"address"`
 	City     string  `json:"city"`
 	State    string  `json:"state"`
 	Zip      string  `json:"zip"`
@@ -119,7 +115,7 @@ var locationsJSON []byte
 // (address, coordinates, and venue type for each) -- not invented. Pulled
 // directly from the JSON payload that powers farmersfridge.com/locations-map/
 // (their Gatsby build's public page-data endpoint, the same data any visitor's
-// browser downloads to render that page), captured 2026-08-18. 2,326 usable
+// browser downloads to render that page), captured 2026-08-24. 2,329 usable
 // records across 22 states/DC. This is a snapshot of public reporting, not a
 // live feed of their current fleet. Each simulated fridge is pinned to one of
 // these; running with -fridges >= len(realLocations) covers every one of them.
@@ -130,6 +126,20 @@ var realLocations = func() []location {
 	}
 	return locs
 }()
+
+// locationForFridge deterministically maps a fridge ID to exactly one real
+// location, stable across every run regardless of -seed, -fridges count, or
+// how many times the simulator has been re-run against the same
+// fleet-server: fridge-001's address today is fridge-001's address next
+// week too. Hashing the ID (rather than shuffling a pool by loop position)
+// is what gives that stability -- the assignment depends only on the ID
+// string, never on iteration order.
+func locationForFridge(fridgeID string) location {
+	h := fnv.New32a()
+	h.Write([]byte(fridgeID))
+	idx := int(h.Sum32() % uint32(len(realLocations)))
+	return realLocations[idx]
+}
 
 func injectRandomFault(sim *dispenser.Simulator, slot string, rng *rand.Rand) {
 	faults := []error{dispenser.ErrJam, dispenser.ErrTimeout, dispenser.ErrSensor}

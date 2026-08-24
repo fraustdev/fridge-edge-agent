@@ -132,9 +132,10 @@
 
   .attention-item {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 10px 4px; border-bottom: 1px solid var(--border);
+    padding: 10px 4px; border-bottom: 1px solid var(--border); border-radius: 8px;
   }
   .attention-item:last-child { border-bottom: none; }
+  .attention-item.clickable:hover { background: var(--bg); }
   .attention-item .info .id { font-family: var(--font-mono); font-weight: 500; font-size: 13.5px; }
   .attention-item .info .meta { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
   .attention-item .priority { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-right: 8px; }
@@ -280,6 +281,37 @@
   }
   .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
   .loading { color: var(--muted); font-size: 13px; font-style: italic; }
+
+  .clickable { cursor: pointer; }
+  .clickable:hover { border-color: var(--accent); }
+
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(3, 4, 5, 0.72);
+    display: none; align-items: center; justify-content: center; z-index: 1000; padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 18px;
+    padding: 22px 24px; width: 480px; max-width: 100%; max-height: 84vh; overflow-y: auto;
+    box-shadow: var(--shadow);
+  }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; }
+  .modal-header .modal-title { display: flex; align-items: center; gap: 10px; }
+  .modal-header h2 { font-family: var(--font-mono); font-size: 16px; font-weight: 500; margin: 0; color: var(--text); text-transform: none; letter-spacing: normal; }
+  .modal-close-btn {
+    background: none; border: none; color: var(--muted); font-size: 20px; line-height: 1;
+    cursor: pointer; width: 24px; height: 24px; flex-shrink: 0;
+  }
+  .modal-close-btn:hover { color: var(--text); }
+  .modal-section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 16px 0 6px; }
+  .modal-section-label:first-of-type { margin-top: 0; }
+  .modal-address { font-size: 13px; color: var(--text); line-height: 1.6; }
+  .modal-address .venue-name { font-weight: 600; }
+  .modal-address .street { color: var(--muted); }
+  .modal-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .modal-row:last-child { border-bottom: none; }
+  .modal-row .mr-main { color: var(--text); }
+  .modal-row .mr-meta { color: var(--muted); font-family: var(--font-mono); white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -397,6 +429,19 @@
   </main>
 </div>
 
+<div class="modal-overlay" id="fridgeModalOverlay" onclick="if (event.target === this) closeFridgeModal()">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <div class="modal-title">
+        <span class="led-dot" id="modalLedDot"></span>
+        <h2 id="modalFridgeId"></h2>
+      </div>
+      <button class="modal-close-btn" onclick="closeFridgeModal()">&times;</button>
+    </div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
 <script src="/static/leaflet.js"></script>
 <script>
 const STATUS_ORDER = ["healthy", "low_stock", "faulted", "offline"];
@@ -507,9 +552,9 @@ function renderMap(fridges) {
     const venue = loc.name || `${loc.city}, ${loc.state}`;
     const marker = L.marker([loc.lat, loc.lng], { icon });
     marker.bindPopup(`
-      <div class="popup-title">${f.id} &middot; ${f.status.replace("_", " ")}</div>
+      <div class="popup-title clickable" onclick="openFridgeModal('${f.id}')" style="text-decoration:underline;text-decoration-color:var(--border)">${f.id} &middot; ${f.status.replace("_", " ")}</div>
       <div class="popup-sub">${venue}</div>
-      <div class="popup-sub">${loc.city}, ${loc.state}${loc.zip ? " " + loc.zip : ""}${loc.vertical ? " &middot; " + loc.vertical : ""}</div>
+      <div class="popup-sub">${loc.address || `${loc.city}, ${loc.state}${loc.zip ? " " + loc.zip : ""}`}${loc.vertical ? " &middot; " + loc.vertical : ""}</div>
     `);
     markerLayer.addLayer(marker);
   });
@@ -554,7 +599,7 @@ function populateStateFilter(fridges) {
 
 function fridgeCardHTML(f) {
   return `
-    <div class="fridge-card ${f.status}">
+    <div class="fridge-card ${f.status} clickable" onclick="openFridgeModal('${f.id}')">
       <span class="led-dot ${f.status}"></span>
       <div>
         <div class="id">${f.id}</div>
@@ -682,14 +727,14 @@ function renderAttentionList(alerts) {
       ? `<span class="badge offline" style="margin-left:6px">${g.all.length} issues</span>`
       : "";
     return `
-    <div class="attention-item">
+    <div class="attention-item clickable" onclick="openFridgeModal('${g.fridgeId}')">
       <div class="info">
         <div class="id">${g.fridgeId} <span class="badge ${a.severity}" style="margin-left:6px">${a.severity}</span>${countBadge}</div>
         <div class="meta">${reasons}${a.blockedReason ? " &middot; blocked: " + a.blockedReason : ""} &middot; ${timeAgo(a.createdAt)}</div>
       </div>
       <div style="display:flex;align-items:center;">
         <span class="priority">${a.priority.toFixed(1)}</span>
-        <button class="action" onclick="assignAlert(${a.id})">Assign</button>
+        <button class="action" onclick="event.stopPropagation(); assignAlert(${a.id})">Assign</button>
       </div>
     </div>
   `;
@@ -699,6 +744,78 @@ function renderAttentionList(alerts) {
 function changeAttentionPage(delta) {
   attentionPage += delta;
   renderAttentionList(latestAlerts);
+}
+
+// --- Fridge detail modal: click any fridge (Needs Attention, Fridges page,
+// Alerts table, map popups) to drill into its address, status, open
+// alerts, and recent event history. ---
+async function openFridgeModal(fridgeId) {
+  const overlay = document.getElementById("fridgeModalOverlay");
+  const body = document.getElementById("modalBody");
+  document.getElementById("modalFridgeId").textContent = fridgeId;
+  document.getElementById("modalLedDot").className = "led-dot";
+  body.innerHTML = `<div class="loading">Loading…</div>`;
+  overlay.classList.add("open");
+
+  try {
+    const res = await fetch(`/fleet/fridges/${encodeURIComponent(fridgeId)}`);
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    const data = await res.json();
+    renderFridgeModal(data);
+  } catch (e) {
+    body.innerHTML = `<div class="loading">Failed to load fridge detail: ${e}</div>`;
+  }
+}
+
+function closeFridgeModal() {
+  document.getElementById("fridgeModalOverlay").classList.remove("open");
+}
+
+function renderFridgeModal(data) {
+  const f = data.fridge;
+  const loc = f.location;
+  document.getElementById("modalLedDot").className = `led-dot ${f.status}`;
+
+  const addressHTML = loc ? `
+    <div class="modal-section-label">Location</div>
+    <div class="modal-address">
+      ${loc.name ? `<div class="venue-name">${loc.name}</div>` : ""}
+      <div class="street">${loc.address || `${loc.city}, ${loc.state}${loc.zip ? " " + loc.zip : ""}`}</div>
+      ${loc.vertical ? `<span class="badge tier-${f.tier || "medium"}" style="margin-top:6px;display:inline-block">${loc.vertical}</span>` : ""}
+    </div>
+  ` : `<div class="modal-section-label">Location</div><div class="loading">No location reported.</div>`;
+
+  const alerts = data.openAlerts || [];
+  const alertsHTML = `
+    <div class="modal-section-label">Open alerts (${alerts.length})</div>
+    ${alerts.length ? alerts.map(a => `
+      <div class="modal-row">
+        <span class="mr-main">${a.sourceEvent}${a.blockedReason ? " &middot; blocked" : ""} <span class="badge ${a.severity}" style="margin-left:4px">${a.severity}</span></span>
+        <span class="mr-meta">${timeAgo(a.createdAt)}</span>
+      </div>
+    `).join("") : `<div class="loading">None</div>`}
+  `;
+
+  const events = (data.recentEvents || []).slice(0, 8);
+  const eventsHTML = `
+    <div class="modal-section-label">Recent events</div>
+    ${events.length ? events.map(e => `
+      <div class="modal-row">
+        <span class="mr-main">${e.type}${e.slotId ? " &middot; slot " + e.slotId : ""}</span>
+        <span class="mr-meta">${timeAgo(e.timestamp)}</span>
+      </div>
+    `).join("") : `<div class="loading">None</div>`}
+  `;
+
+  document.getElementById("modalBody").innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span class="badge ${f.status}">${f.status.replace("_", " ")}</span>
+      ${f.tier ? `<span class="badge tier-${f.tier}">${f.tier} tier</span>` : ""}
+    </div>
+    ${addressHTML}
+    ${alertsHTML}
+    ${eventsHTML}
+  `;
 }
 
 async function refreshStatus() {
@@ -755,7 +872,7 @@ function renderAlertsTable() {
   rows.innerHTML = shown.map(a => `
     <tr>
       <td class="mono">${a.id}</td>
-      <td class="mono">${a.fridgeId}</td>
+      <td class="mono clickable" onclick="openFridgeModal('${a.fridgeId}')" style="text-decoration:underline;text-decoration-color:var(--border)">${a.fridgeId}</td>
       <td class="mono">${a.slotId || "—"}</td>
       <td>${a.sourceEvent}</td>
       <td><span class="badge ${a.severity}">${a.severity}</span></td>

@@ -57,7 +57,7 @@ real fleet scale a single page of everything stops being usable:
 - **Fleet Map** — a real zoomable/pannable US map (Leaflet + CARTO dark
   tiles) of every simulated fridge at its real location, color-coded by
   status and pulsing for faulted.
-- **Fridges** — at 2,326 real locations, a flat list is unusable, so this
+- **Fridges** — at 2,329 real locations, a flat list is unusable, so this
   groups by state (collapsible, small states auto-expanded) with a filter
   bar (state, status, criticality-tier dropdowns + free-text search over
   id/city/venue name, all combining with AND) that narrows the grid and the
@@ -86,23 +86,31 @@ time, so the dashboard doesn't depend on a third party being up. The map
 there's no reasonable way to vendor world imagery.
 
 `cmd/fridge-sim` pins each simulated fridge to one of Farmer's Fridge's own
-**real, individual fridge locations** — 2,326 of them, with exact
-coordinates, address, and venue type (Airport/Healthcare/B&I/Office/
+**real, individual fridge locations** — 2,329 of them, with exact street
+address, coordinates, and venue type (Airport/Healthcare/B&I/Office/
 Education/etc.) — pulled directly from the JSON payload that powers
 `farmersfridge.com/locations-map/` (their own Gatsby build's public
 page-data endpoint; the same data any visitor's browser downloads to render
-that page). Captured 2026-08-18, embedded at `cmd/fridge-sim/locations.json`.
+that page). Captured 2026-08-24, embedded at `cmd/fridge-sim/locations.json`.
 This is a snapshot of public reporting, not a live feed of their current
 fleet, and it plays no role in any vend/dispatch/alerting logic — it's
-cosmetic context for the map view. The dataset spans 22 states/DC, close to
-the "20 states" figure in SPEC.md's evidence section.
+cosmetic context for the map view and the fridge detail modal. The dataset
+spans 22 states/DC, close to the "20 states" figure in SPEC.md's evidence
+section.
 
-Run `-fridges 2326` to place one simulated fridge at every real location in
-the dataset (confirmed working: the fleet-status endpoint correctly reports
-all 2,326, across all 22 states, in well under a minute). Smaller runs
-shuffle the pool first, so even `-fridges 10` gets a realistic geographic
-spread instead of landing on whatever order the source data happens to be
-in.
+Each fridge ID maps to **exactly one** real location, deterministically
+(a hash of the fridge ID, not a shuffle keyed by `-seed` or loop position)
+— `fridge-001` gets the same real address every run, regardless of
+`-seed`, `-fridges` count, or how many times the simulator's been re-run
+against the same `fleet-server`. Run `-fridges 2329` to place one
+simulated fridge at every real location in the dataset (confirmed working:
+the fleet-status endpoint correctly reports all of them, across all 22
+states, in well under a minute).
+
+Every fridge is clickable — in the Fridges grid, the Needs Attention list,
+the Alerts table, and map popups — opening a detail modal with its real
+address/venue, current status/tier, open alerts, and recent event history
+(`GET /fleet/fridges/{id}`, already existing from v2).
 
 Or poke the read side directly:
 

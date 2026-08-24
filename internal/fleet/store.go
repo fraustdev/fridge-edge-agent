@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS fridges (
 	id TEXT PRIMARY KEY,
 	status TEXT NOT NULL,
 	last_event_at TEXT NOT NULL,
+	address TEXT,
 	city TEXT,
 	state TEXT,
 	zip TEXT,
@@ -107,7 +108,7 @@ CREATE INDEX IF NOT EXISTS idx_alerts_fridge ON alerts(fridge_id, status);
 
 	// fridges predating the location columns won't get them from CREATE TABLE
 	// IF NOT EXISTS above, so add them explicitly, ignoring "already exists".
-	for _, col := range []string{"city TEXT", "state TEXT", "zip TEXT", "vertical TEXT", "name TEXT", "lat REAL", "lng REAL"} {
+	for _, col := range []string{"address TEXT", "city TEXT", "state TEXT", "zip TEXT", "vertical TEXT", "name TEXT", "lat REAL", "lng REAL"} {
 		if _, err := s.db.Exec(`ALTER TABLE fridges ADD COLUMN ` + col); err != nil {
 			if !strings.Contains(err.Error(), "duplicate column name") {
 				return fmt.Errorf("add fridges column %q: %w", col, err)
@@ -190,9 +191,10 @@ func (s *SQLiteStore) ListRecentEvents(ctx context.Context, limit int) ([]Event,
 }
 
 func (s *SQLiteStore) UpsertFridge(ctx context.Context, f Fridge) error {
-	var city, state, zip, vertical, name sql.NullString
+	var address, city, state, zip, vertical, name sql.NullString
 	var lat, lng sql.NullFloat64
 	if f.Location != nil {
+		address = sql.NullString{String: f.Location.Address, Valid: f.Location.Address != ""}
 		city = sql.NullString{String: f.Location.City, Valid: true}
 		state = sql.NullString{String: f.Location.State, Valid: true}
 		zip = sql.NullString{String: f.Location.Zip, Valid: f.Location.Zip != ""}
@@ -202,10 +204,11 @@ func (s *SQLiteStore) UpsertFridge(ctx context.Context, f Fridge) error {
 		lng = sql.NullFloat64{Float64: f.Location.Lng, Valid: true}
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO fridges (id, status, last_event_at, city, state, zip, vertical, name, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO fridges (id, status, last_event_at, address, city, state, zip, vertical, name, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   status = excluded.status,
 		   last_event_at = excluded.last_event_at,
+		   address = COALESCE(excluded.address, fridges.address),
 		   city = COALESCE(excluded.city, fridges.city),
 		   state = COALESCE(excluded.state, fridges.state),
 		   zip = COALESCE(excluded.zip, fridges.zip),
@@ -213,7 +216,7 @@ func (s *SQLiteStore) UpsertFridge(ctx context.Context, f Fridge) error {
 		   name = COALESCE(excluded.name, fridges.name),
 		   lat = COALESCE(excluded.lat, fridges.lat),
 		   lng = COALESCE(excluded.lng, fridges.lng)`,
-		f.ID, string(f.Status), f.LastEventAt.UTC().Format(time.RFC3339Nano), city, state, zip, vertical, name, lat, lng)
+		f.ID, string(f.Status), f.LastEventAt.UTC().Format(time.RFC3339Nano), address, city, state, zip, vertical, name, lat, lng)
 	if err != nil {
 		return fmt.Errorf("upsert fridge: %w", err)
 	}
@@ -223,9 +226,9 @@ func (s *SQLiteStore) UpsertFridge(ctx context.Context, f Fridge) error {
 func (s *SQLiteStore) scanFridge(row *sql.Row) (Fridge, error) {
 	var f Fridge
 	var status, ts string
-	var city, state, zip, vertical, name sql.NullString
+	var address, city, state, zip, vertical, name sql.NullString
 	var lat, lng sql.NullFloat64
-	if err := row.Scan(&f.ID, &status, &ts, &city, &state, &zip, &vertical, &name, &lat, &lng); err != nil {
+	if err := row.Scan(&f.ID, &status, &ts, &address, &city, &state, &zip, &vertical, &name, &lat, &lng); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Fridge{}, ErrNotFound
 		}
@@ -238,14 +241,14 @@ func (s *SQLiteStore) scanFridge(row *sql.Row) (Fridge, error) {
 	}
 	f.LastEventAt = parsedTS
 	if lat.Valid && lng.Valid {
-		f.Location = &Location{City: city.String, State: state.String, Zip: zip.String, Vertical: vertical.String, Name: name.String, Lat: lat.Float64, Lng: lng.Float64}
+		f.Location = &Location{Address: address.String, City: city.String, State: state.String, Zip: zip.String, Vertical: vertical.String, Name: name.String, Lat: lat.Float64, Lng: lng.Float64}
 	}
 	return f, nil
 }
 
 func (s *SQLiteStore) GetFridge(ctx context.Context, id string) (Fridge, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, status, last_event_at, city, state, zip, vertical, name, lat, lng FROM fridges WHERE id = ?`, id)
+		`SELECT id, status, last_event_at, address, city, state, zip, vertical, name, lat, lng FROM fridges WHERE id = ?`, id)
 	f, err := s.scanFridge(row)
 	if err != nil {
 		return Fridge{}, err
@@ -261,7 +264,7 @@ func (s *SQLiteStore) GetFridge(ctx context.Context, id string) (Fridge, error) 
 }
 
 func (s *SQLiteStore) ListFridges(ctx context.Context) ([]Fridge, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, status, last_event_at, city, state, zip, vertical, name, lat, lng FROM fridges ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, status, last_event_at, address, city, state, zip, vertical, name, lat, lng FROM fridges ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("query fridges: %w", err)
 	}
@@ -271,9 +274,9 @@ func (s *SQLiteStore) ListFridges(ctx context.Context) ([]Fridge, error) {
 	for rows.Next() {
 		var f Fridge
 		var status, ts string
-		var city, state, zip, vertical, name sql.NullString
+		var address, city, state, zip, vertical, name sql.NullString
 		var lat, lng sql.NullFloat64
-		if err := rows.Scan(&f.ID, &status, &ts, &city, &state, &zip, &vertical, &name, &lat, &lng); err != nil {
+		if err := rows.Scan(&f.ID, &status, &ts, &address, &city, &state, &zip, &vertical, &name, &lat, &lng); err != nil {
 			return nil, fmt.Errorf("scan fridge: %w", err)
 		}
 		f.Status = FridgeStatus(status)
@@ -283,7 +286,7 @@ func (s *SQLiteStore) ListFridges(ctx context.Context) ([]Fridge, error) {
 		}
 		f.LastEventAt = parsedTS
 		if lat.Valid && lng.Valid {
-			f.Location = &Location{City: city.String, State: state.String, Zip: zip.String, Vertical: vertical.String, Name: name.String, Lat: lat.Float64, Lng: lng.Float64}
+			f.Location = &Location{Address: address.String, City: city.String, State: state.String, Zip: zip.String, Vertical: vertical.String, Name: name.String, Lat: lat.Float64, Lng: lng.Float64}
 		}
 		fridges = append(fridges, f)
 	}
