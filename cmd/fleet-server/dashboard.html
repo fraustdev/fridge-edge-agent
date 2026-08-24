@@ -257,10 +257,6 @@
   .copilot-actions-label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 16px 0 8px; flex-wrap: wrap; }
   .copilot-actions-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
   .copilot-actions-pager { display: flex; align-items: center; gap: 8px; }
-  .copilot-actions-pager select {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text); font-size: 11px; padding: 3px 6px;
-  }
   .copilot-actions-pager .pager-indicator { font-family: var(--font-mono); font-size: 11px; color: var(--muted); min-width: 34px; text-align: center; }
   .pager-btn {
     background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
@@ -772,23 +768,24 @@ function renderCopilotChart(eventCounts) {
 }
 
 // Paginated so a long run of charged-but-not-dispensed cases doesn't turn
-// into one endless column of red-bordered rows. Page state persists across
-// live refreshes (it's not reset every poll) and re-renders locally against
-// the last-fetched summary rather than re-fetching (paging shouldn't
-// trigger another LLM call).
+// into one endless column of red-bordered rows. Fixed at 10/page (no user
+// control over page size). Page state persists across live refreshes (it's
+// not reset every poll) and re-renders locally against the last-fetched
+// summary rather than re-fetching (paging shouldn't trigger another LLM
+// call).
 let latestCopilotSummary = null;
 let actionsPage = 0;
-let actionsPageSize = 10;
+const ACTIONS_PAGE_SIZE = 10;
 
 function renderCopilotActions(items) {
   if (!items || !items.length) return "";
 
-  const totalPages = Math.max(1, Math.ceil(items.length / actionsPageSize));
+  const totalPages = Math.max(1, Math.ceil(items.length / ACTIONS_PAGE_SIZE));
   if (actionsPage >= totalPages) actionsPage = totalPages - 1;
   if (actionsPage < 0) actionsPage = 0;
 
-  const start = actionsPage * actionsPageSize;
-  const pageItems = items.slice(start, start + actionsPageSize);
+  const start = actionsPage * ACTIONS_PAGE_SIZE;
+  const pageItems = items.slice(start, start + ACTIONS_PAGE_SIZE);
 
   const rows = pageItems.map(a => `
     <div class="action-item-row">
@@ -799,9 +796,6 @@ function renderCopilotActions(items) {
 
   const pager = `
     <div class="copilot-actions-pager">
-      <select onchange="setActionsPageSize(this.value)">
-        ${[5, 10, 25, 50].map(n => `<option value="${n}" ${n === actionsPageSize ? "selected" : ""}>${n} / page</option>`).join("")}
-      </select>
       <button class="pager-btn" onclick="changeActionsPage(-1)" ${actionsPage === 0 ? "disabled" : ""}>&#8249;</button>
       <span class="pager-indicator">${actionsPage + 1} / ${totalPages}</span>
       <button class="pager-btn" onclick="changeActionsPage(1)" ${actionsPage >= totalPages - 1 ? "disabled" : ""}>&#8250;</button>
@@ -815,12 +809,6 @@ function renderCopilotActions(items) {
     </div>
     ${rows}
   `;
-}
-
-function setActionsPageSize(value) {
-  actionsPageSize = parseInt(value, 10);
-  actionsPage = 0;
-  if (latestCopilotSummary) renderCopilot(latestCopilotSummary);
 }
 
 function changeActionsPage(delta) {
