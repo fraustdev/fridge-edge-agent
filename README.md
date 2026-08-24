@@ -51,7 +51,7 @@ real fleet scale a single page of everything stops being usable:
 - **Dashboard** — fleet health stat cards (with a live rolling sparkline
   each), the ops copilot narrative, and a "Needs attention" panel showing
   the highest-priority open/blocked alerts with one-click Assign.
-- **Fleet Map** — a real zoomable/pannable US map (Leaflet + CARTO light
+- **Fleet Map** — a real zoomable/pannable US map (Leaflet + CARTO dark
   tiles) of every simulated fridge at its real location, color-coded by
   status and pulsing for faulted.
 - **Fridges** — at 2,326 real locations, a flat list is unusable, so this
@@ -66,10 +66,21 @@ real fleet scale a single page of everything stops being usable:
   time) since an unpaginated table hits the same at-scale problem as the
   fridge list did (1,000+ rows otherwise).
 
-Leaflet itself is vendored locally (`cmd/fleet-server/leaflet.js`/`.css`,
-BSD-2-Clause) so the dashboard doesn't depend on a CDN; the map *tiles*
-still come from CARTO/OpenStreetMap over the network, since there's no
-reasonable way to vendor world imagery.
+Visual design: a cool-graphite palette (not pure black, not a cream
+default) with LED-style status dots as the signature element — small,
+color-coded, glowing, pulsing for faulted, dim for offline — echoing how a
+real vending machine actually signals state, used consistently on stat
+cards, fridge cards, and the map. Typography splits by role: Space Grotesk
+for headers, Inter for body copy, IBM Plex Mono for every data value
+(fridge IDs, timestamps, priority scores, counts) — monospacing the data
+specifically is what makes the Alerts table's columns actually align.
+
+Leaflet (`cmd/fleet-server/leaflet.js`/`.css`, BSD-2-Clause) and all three
+font families (`cmd/fleet-server/fonts/*.woff2`, SIL Open Font License) are
+vendored locally rather than pulled from a CDN/Google Fonts at page-load
+time, so the dashboard doesn't depend on a third party being up. The map
+*tiles* still come from CARTO/OpenStreetMap over the network, since
+there's no reasonable way to vendor world imagery.
 
 `cmd/fridge-sim` pins each simulated fridge to one of Farmer's Fridge's own
 **real, individual fridge locations** — 2,326 of them, with exact
