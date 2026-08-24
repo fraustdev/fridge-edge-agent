@@ -254,7 +254,22 @@
   .chart-row .chart-fill { height: 100%; border-radius: 4px; min-width: 2px; }
   .chart-row .chart-count { width: 30px; text-align: right; font-family: var(--font-mono); color: var(--text); flex-shrink: 0; }
 
-  .copilot-actions-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 16px 0 8px; }
+  .copilot-actions-label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 16px 0 8px; flex-wrap: wrap; }
+  .copilot-actions-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .copilot-actions-pager { display: flex; align-items: center; gap: 8px; }
+  .copilot-actions-pager select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-size: 11px; padding: 3px 6px;
+  }
+  .copilot-actions-pager .pager-indicator { font-family: var(--font-mono); font-size: 11px; color: var(--muted); min-width: 34px; text-align: center; }
+  .pager-btn {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-size: 12px; width: 22px; height: 22px; line-height: 1;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .pager-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .pager-btn:disabled { opacity: 0.35; cursor: default; }
+
   .action-item-row {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
     border: 1px solid var(--faulted); background: var(--faulted-bg);
@@ -756,18 +771,66 @@ function renderCopilotChart(eventCounts) {
   `).join("");
 }
 
+// Paginated so a long run of charged-but-not-dispensed cases doesn't turn
+// into one endless column of red-bordered rows. Page state persists across
+// live refreshes (it's not reset every poll) and re-renders locally against
+// the last-fetched summary rather than re-fetching (paging shouldn't
+// trigger another LLM call).
+let latestCopilotSummary = null;
+let actionsPage = 0;
+let actionsPageSize = 10;
+
 function renderCopilotActions(items) {
   if (!items || !items.length) return "";
-  const rows = items.map(a => `
+
+  const totalPages = Math.max(1, Math.ceil(items.length / actionsPageSize));
+  if (actionsPage >= totalPages) actionsPage = totalPages - 1;
+  if (actionsPage < 0) actionsPage = 0;
+
+  const start = actionsPage * actionsPageSize;
+  const pageItems = items.slice(start, start + actionsPageSize);
+
+  const rows = pageItems.map(a => `
     <div class="action-item-row">
       <span class="aid-main">${a.FridgeID} &middot; slot ${a.Slot || "—"} &middot; ${timeAgo(a.Timestamp)}</span>
       <span class="aid-reason">${a.Reason}</span>
     </div>
   `).join("");
-  return `<div class="copilot-actions-label">Needs review</div>${rows}`;
+
+  const pager = `
+    <div class="copilot-actions-pager">
+      <select onchange="setActionsPageSize(this.value)">
+        ${[5, 10, 25, 50].map(n => `<option value="${n}" ${n === actionsPageSize ? "selected" : ""}>${n} / page</option>`).join("")}
+      </select>
+      <button class="pager-btn" onclick="changeActionsPage(-1)" ${actionsPage === 0 ? "disabled" : ""}>&#8249;</button>
+      <span class="pager-indicator">${actionsPage + 1} / ${totalPages}</span>
+      <button class="pager-btn" onclick="changeActionsPage(1)" ${actionsPage >= totalPages - 1 ? "disabled" : ""}>&#8250;</button>
+    </div>
+  `;
+
+  return `
+    <div class="copilot-actions-label-row">
+      <div class="copilot-actions-label">Needs review (${items.length})</div>
+      ${pager}
+    </div>
+    ${rows}
+  `;
+}
+
+function setActionsPageSize(value) {
+  actionsPageSize = parseInt(value, 10);
+  actionsPage = 0;
+  if (latestCopilotSummary) renderCopilot(latestCopilotSummary);
+}
+
+function changeActionsPage(delta) {
+  actionsPage += delta;
+  if (latestCopilotSummary) renderCopilot(latestCopilotSummary);
 }
 
 function renderCopilot(summary) {
+  latestCopilotSummary = summary;
+
   const badge = document.getElementById("sourceBadge");
   badge.textContent = summary.Source === "llm" ? "LLM" : "Heuristic fallback";
   badge.className = "source-badge " + (summary.Source === "llm" ? "llm" : "heuristic");
