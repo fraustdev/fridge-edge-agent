@@ -45,14 +45,24 @@ go run ./cmd/fridge-sim -fridges 10 -transactions 20
 Then open **http://localhost:8080** for a live read/write dashboard — fleet
 overview, a real zoomable/pannable US map (Leaflet + OpenStreetMap tiles) of
 simulated fridge locations color-coded by status and pulsing red for
-faulted, per-fridge grid, alerts you can assign/resolve by clicking, and a
-"Regenerate summary" button for the copilot narrative. It's a single static
-page (`cmd/fleet-server/dashboard.html`, embedded via `go:embed`) calling the
-same JSON endpoints below — no build step, no separate frontend project.
-Leaflet itself is vendored locally (`cmd/fleet-server/leaflet.js`/`.css`, BSD-
-2-Clause) so the dashboard doesn't depend on a CDN; the map *tiles* still
-come from OpenStreetMap over the network, since there's no reasonable way to
-vendor world imagery.
+faulted, a state/search location filter, per-fridge grid, alerts you can
+assign/resolve by clicking, and a "Regenerate summary" button for the
+copilot narrative. It's a single static page
+(`cmd/fleet-server/dashboard.html`, embedded via `go:embed`) calling the same
+JSON endpoints below — no build step, no separate frontend project. Leaflet
+itself is vendored locally (`cmd/fleet-server/leaflet.js`/`.css`,
+BSD-2-Clause) so the dashboard doesn't depend on a CDN; the map *tiles*
+still come from OpenStreetMap over the network, since there's no reasonable
+way to vendor world imagery.
+
+At real scale (thousands of fridges), a flat list is unusable, so the
+"Fridges" section groups by state (collapsible, small states auto-expanded)
+and the location filter bar (state dropdown + free-text search over id/
+city/venue name) narrows both the fridge grid and the map together —
+selecting a state zooms the map to fit just that state's fridges. Verified
+against the full 2,326-location dataset: `-fridges 2326` populates every
+real location, and the filter correctly narrows it down (e.g. selecting
+"CT" shows exactly its 5 real fridges and zooms the map to Connecticut).
 
 `cmd/fridge-sim` pins each simulated fridge to one of Farmer's Fridge's own
 **real, individual fridge locations** — 2,326 of them, with exact

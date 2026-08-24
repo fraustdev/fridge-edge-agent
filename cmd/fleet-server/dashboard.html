@@ -260,6 +260,38 @@
   }
   .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
   .loading { color: var(--muted); font-size: 13px; font-style: italic; }
+
+  .filter-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 10px 14px; margin-bottom: 20px;
+  }
+  .filter-bar label { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .filter-bar select, .filter-bar input {
+    background: var(--panel-raised); border: 1px solid var(--border); border-radius: 7px;
+    color: var(--text); font-size: 12.5px; padding: 5px 9px;
+  }
+  .filter-bar select { min-width: 150px; }
+  .filter-bar input { min-width: 220px; }
+  .filter-bar select:focus, .filter-bar input:focus { outline: none; border-color: var(--accent); }
+  .filter-bar .fridge-count { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+  .state-group {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 2px 14px 12px; margin-bottom: 10px;
+  }
+  .state-group summary {
+    cursor: pointer; padding: 10px 0; color: var(--text); font-weight: 600; font-size: 13px;
+    display: flex; align-items: center; gap: 8px; list-style: none;
+  }
+  .state-group summary::-webkit-details-marker { display: none; }
+  .state-group summary::before { content: "▸"; color: var(--muted); font-size: 11px; }
+  .state-group[open] summary::before { content: "▾"; }
+  .state-group .state-count {
+    font-size: 11px; color: var(--muted); font-weight: 500; background: var(--panel-raised);
+    padding: 1px 8px; border-radius: 999px;
+  }
+  .state-group-label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 </style>
 </head>
 <body>
@@ -275,6 +307,15 @@
     <h2>Fleet Overview</h2>
     <div class="stat-row" id="statRow"></div>
   </section>
+
+  <div class="filter-bar">
+    <label>Location
+      <select id="stateFilter"><option value="">All states</option></select>
+    </label>
+    <input type="text" id="fridgeSearch" placeholder="Search fridge id, city, or venue…">
+    <button class="refresh-btn" id="clearFilterBtn">Clear filter</button>
+    <span class="fridge-count" id="fridgeFilterCount"></span>
+  </div>
 
   <section>
     <h2>Fleet Map</h2>
@@ -295,7 +336,7 @@
 
   <section>
     <h2>Fridges</h2>
-    <div class="fridge-grid" id="fridgeGrid"></div>
+    <div id="fridgeGroups"></div>
   </section>
 
   <section>
@@ -335,6 +376,107 @@
 const STATUS_ORDER = ["healthy", "low_stock", "faulted", "offline"];
 const STATUS_ICON = { healthy: "✅", low_stock: "⚠️", faulted: "❌", offline: "📴" };
 let currentAlertFilter = "";
+
+// Full fridge list from the last poll, and the current location filter
+// applied on top of it -- with 2,000+ real locations, an unfiltered flat
+// list/map is unusable, so both the "Fridges" section and the map respect
+// this filter, grouped by state for a manageable default view.
+let allFridges = [];
+const locationFilter = { state: "", query: "" };
+
+function getFilteredFridges() {
+  return allFridges.filter(f => {
+    if (locationFilter.state && (!f.location || f.location.state !== locationFilter.state)) return false;
+    if (locationFilter.query) {
+      const q = locationFilter.query.toLowerCase();
+      const haystack = [f.id, f.location && f.location.city, f.location && f.location.name, f.location && f.location.vertical]
+        .filter(Boolean).join(" ").toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function populateStateFilter(fridges) {
+  const counts = {};
+  fridges.forEach(f => {
+    const st = f.location && f.location.state;
+    if (st) counts[st] = (counts[st] || 0) + 1;
+  });
+  const select = document.getElementById("stateFilter");
+  const prevValue = select.value;
+  const states = Object.keys(counts).sort();
+  select.innerHTML = `<option value="">All states (${fridges.length})</option>` +
+    states.map(s => `<option value="${s}">${s} (${counts[s]})</option>`).join("");
+  select.value = states.includes(prevValue) ? prevValue : "";
+}
+
+function fridgeCardHTML(f) {
+  return `
+    <div class="fridge-card ${f.status}">
+      <div class="glyph">&#129466;</div>
+      <div>
+        <div class="id">${f.id}</div>
+        <div class="meta">${f.status.replace("_", " ")} &middot; ${timeAgo(f.lastEventAt)}</div>
+        ${f.location ? `<div class="loc">${f.location.vertical ? "[" + f.location.vertical + "] " : ""}${f.location.city}, ${f.location.state}</div>` : ""}
+        ${f.tier ? `<span class="badge tier-${f.tier}">${f.tier} tier</span>` : ""}
+        ${f.openAlertIds && f.openAlertIds.length ? `<div class="alert-badge">${f.openAlertIds.length} open alert${f.openAlertIds.length > 1 ? "s" : ""}</div>` : ""}
+      </div>
+    </div>`;
+}
+
+function renderFridgeGroups(filtered) {
+  const container = document.getElementById("fridgeGroups");
+  document.getElementById("fridgeFilterCount").textContent =
+    `${filtered.length} of ${allFridges.length} fridges shown`;
+
+  if (!filtered.length) {
+    container.innerHTML = allFridges.length
+      ? `<div class="loading">No fridges match this filter.</div>`
+      : `<div class="loading">No fridges reporting yet — start cmd/fridge-sim.</div>`;
+    return;
+  }
+
+  const groups = {};
+  filtered.forEach(f => {
+    const key = (f.location && f.location.state) || "Unknown location";
+    (groups[key] = groups[key] || []).push(f);
+  });
+  const keys = Object.keys(groups).sort();
+  const singleGroup = keys.length === 1;
+
+  container.innerHTML = keys.map(state => {
+    const items = groups[state];
+    const cardsHTML = `<div class="fridge-grid">${items.map(fridgeCardHTML).join("")}</div>`;
+    if (singleGroup) {
+      return `<div class="state-group-label">${state} &middot; ${items.length} fridge${items.length > 1 ? "s" : ""}</div>${cardsHTML}`;
+    }
+    const openAttr = items.length <= 12 ? " open" : "";
+    return `<details class="state-group"${openAttr}>
+      <summary>${state} <span class="state-count">${items.length}</span></summary>
+      ${cardsHTML}
+    </details>`;
+  }).join("");
+}
+
+function fitMapToFridges(fridges) {
+  if (!leafletMap) return;
+  const withLoc = fridges.filter(f => f.location);
+  if (!locationFilter.state && !locationFilter.query) {
+    leafletMap.setView([39.5, -98.35], 4);
+    return;
+  }
+  if (!withLoc.length) return;
+  const bounds = L.latLngBounds(withLoc.map(f => [f.location.lat, f.location.lng]));
+  leafletMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 10 });
+}
+
+function applyLocationFilter(fitBounds) {
+  const filtered = getFilteredFridges();
+  renderFridgeGroups(filtered);
+  renderMap(filtered);
+  if (fitBounds) fitMapToFridges(filtered);
+}
 
 // Rolling client-side history of each status's count, sampled once per
 // poll (every 5s) -- a real trend of this session's polling, not a
@@ -440,23 +582,9 @@ async function refreshStatus() {
     </div>
   `).join("");
 
-  const fridges = (data.fridges || []).slice().sort((a, b) => a.id.localeCompare(b.id));
-
-  const grid = document.getElementById("fridgeGrid");
-  grid.innerHTML = fridges.map(f => `
-    <div class="fridge-card ${f.status}">
-      <div class="glyph">&#129466;</div>
-      <div>
-        <div class="id">${f.id}</div>
-        <div class="meta">${f.status.replace("_", " ")} &middot; ${timeAgo(f.lastEventAt)}</div>
-        ${f.location ? `<div class="loc">${f.location.vertical ? "[" + f.location.vertical + "] " : ""}${f.location.city}, ${f.location.state}</div>` : ""}
-        ${f.tier ? `<span class="badge tier-${f.tier}">${f.tier} tier</span>` : ""}
-        ${f.openAlertIds && f.openAlertIds.length ? `<div class="alert-badge">${f.openAlertIds.length} open alert${f.openAlertIds.length > 1 ? "s" : ""}</div>` : ""}
-      </div>
-    </div>
-  `).join("") || `<div class="loading">No fridges reporting yet — start cmd/fridge-sim.</div>`;
-
-  renderMap(fridges);
+  allFridges = (data.fridges || []).slice().sort((a, b) => a.id.localeCompare(b.id));
+  populateStateFilter(allFridges);
+  applyLocationFilter(false);
 
   document.getElementById("lastUpdated").textContent = "updated " + new Date(data.generatedAt).toLocaleTimeString();
 }
@@ -564,6 +692,22 @@ document.getElementById("alertTabs").addEventListener("click", (e) => {
 
 document.getElementById("copilotRefresh").addEventListener("click", refreshCopilot);
 document.getElementById("assignNextBtn").addEventListener("click", assignNext);
+
+document.getElementById("stateFilter").addEventListener("change", (e) => {
+  locationFilter.state = e.target.value;
+  applyLocationFilter(true);
+});
+document.getElementById("fridgeSearch").addEventListener("input", (e) => {
+  locationFilter.query = e.target.value;
+  applyLocationFilter(true);
+});
+document.getElementById("clearFilterBtn").addEventListener("click", () => {
+  locationFilter.state = "";
+  locationFilter.query = "";
+  document.getElementById("stateFilter").value = "";
+  document.getElementById("fridgeSearch").value = "";
+  applyLocationFilter(true);
+});
 
 refreshStatus();
 refreshAlerts();
