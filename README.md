@@ -135,13 +135,56 @@ mode — a genuine `PaymentIntent` create+confirm and, on a successful vend
 that later needs reversing, a genuine `Refund` — instead of an in-memory
 coin flip. Card outcomes come from Stripe's own test payment method tokens
 (`pm_card_visa` succeeds, `pm_card_chargeDeclined` reliably declines, picked
-~5% of the time to mirror real-world decline rates), so success/failure is
-whatever Stripe's test-mode processing actually returns, not something the
-simulator asserts on its own. Unset, it falls back to the original in-memory
+at the calibrated decline rate below), so success/failure is whatever
+Stripe's test-mode processing actually returns, not something the simulator
+asserts on its own. Unset, it falls back to the original in-memory
 `simulatedPaymentGateway`, so the whole project still runs with zero
 external accounts. Get a test key from the
 [Stripe Dashboard](https://dashboard.stripe.com/test/apikeys) (test mode
 toggle, top-right) — never commit it; export it in your shell instead.
+
+### Realistic simulation (v4)
+
+The simulator used to produce flat, uniform noise — a fixed $3.50 on every
+vend, identical traffic at every hour, and arbitrary failure rates. That's
+what made an earlier "Needs Review" list look suspiciously clean the moment
+anyone looked closely. This addendum ties real menu/pricing data, venue-aware
+traffic shape, and calibrated failure rates together so a run reads like a
+plausible real fleet instead of synthetic noise:
+
+- **Real menu, plausible pricing.** Item names and categories
+  (`cmd/fridge-sim/menu.go`) are pulled directly from Farmer's Fridge's
+  public menu page (farmersfridge.com/menu, captured 2026-08-25) — real
+  names, not invented. Farmer's Fridge doesn't publish per-item pricing; a
+  third-party menu-price tracker reports their overall range as roughly
+  $2.00–$8.00, so each item is priced within a plausible band by category
+  (Snack/Sides $2.00–$4.00; Salad/Bowl/Wrap/Breakfast/HighProtein
+  $6.00–$8.00). **This is a plausible reconstruction, not their actual
+  current pricing.** Each fridge's five slots get a random menu item at
+  creation time, priced once and reused for every vend of that slot, so
+  vend amounts vary realistically instead of a flat placeholder.
+- **Venue-aware traffic shape.** `cmd/fridge-sim/traffic.go` applies an
+  hour-of-day multiplier to vend-attempt frequency, keyed by each fridge's
+  real venue type: Office/B&I get a pronounced late-morning/midday lunch
+  peak and near-zero overnight traffic; Airport is flatter across the day
+  but has a higher overall baseline (plus small bumps around typical
+  early-morning/early-evening travel windows); Healthcare is closest to
+  round-the-clock; Education follows the Office shape with an added
+  weekday/weekend damping factor. This is a simple illustrative heuristic —
+  **not a real demand model and not based on any of Farmer's Fridge's
+  actual traffic data**, which isn't public. Verified: an Office-tagged
+  fridge showed 8 of 14 events (57%) landing in the 11am–noon hour alone;
+  an Airport-tagged fridge showed a flatter 1–5-events-per-hour spread
+  across the day at more than double the total volume.
+- **Calibrated failure rates** (`cmd/fridge-sim/rates.go`): payment decline
+  ~6% (realistic card-present/card-not-present range, not a Farmer's
+  Fridge-specific figure), refund-call failure ~0.8% (the rare
+  double-failure that produces `refund_pending` — kept well below the
+  decline rate so it reads as a genuine edge case), hardware-fault
+  injection ~0.5% per vend attempt (tuned down from an earlier, higher
+  rate that put ~88% of a full 2,329-fridge run into "faulted" — implausible
+  at fleet scale, since any single fault permanently marks a fridge faulted
+  for this demo's snapshot).
 
 ## HTTP API
 

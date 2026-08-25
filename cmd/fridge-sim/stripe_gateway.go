@@ -26,7 +26,7 @@ func newStripePaymentGateway(apiKey string, rng *rand.Rand) *stripePaymentGatewa
 
 func (g *stripePaymentGateway) Authorize(slotID string, amountCents int) (string, error) {
 	paymentMethod := "pm_card_visa"
-	if g.rng.Float64() < 0.05 {
+	if g.rng.Float64() < paymentDeclineRate {
 		paymentMethod = "pm_card_chargeDeclined"
 	}
 
@@ -45,6 +45,17 @@ func (g *stripePaymentGateway) Authorize(slotID string, amountCents int) (string
 }
 
 func (g *stripePaymentGateway) Refund(txnID string) error {
+	// Stripe test mode has no documented test fixture that reliably makes
+	// a Refund call itself fail (unlike PaymentIntent declines, which have
+	// pm_card_chargeDeclined) -- so refund_pending's rare failure is rolled
+	// here, before the real API call, at the same calibrated rate the
+	// in-memory gateway uses. A "failed" refund attempt below still never
+	// actually reaches Stripe, so it can't leave a stray real Refund object
+	// behind.
+	if g.rng.Float64() < refundFailureRate {
+		return fmt.Errorf("payment processor unreachable")
+	}
+
 	if _, err := refund.New(&stripe.RefundParams{
 		PaymentIntent: stripe.String(txnID),
 	}); err != nil {

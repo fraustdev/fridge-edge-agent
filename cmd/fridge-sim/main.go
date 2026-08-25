@@ -16,6 +16,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/frida/fridge-edge-agent/internal/dispenser"
@@ -52,30 +53,64 @@ func main() {
 	var outcomes = map[vend.Outcome]int{}
 	var doorAnomalies int
 
+	now := time.Now()
+	currentHour := now.Hour()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	slots := []string{"A1", "A2", "A3", "B1", "B2"}
+
 	for i := 0; i < *fridgeCount; i++ {
 		fridgeID := fmt.Sprintf("fridge-%03d", i+1)
-		publisher.locations[fridgeID] = locationForFridge(fridgeID)
-		sim := dispenser.NewSimulator(map[string]int{
-			"A1": 20, "A2": 20, "A3": 20, "B1": 20, "B2": 20,
-		})
+		loc := locationForFridge(fridgeID)
+		publisher.locations[fridgeID] = loc
+
+		// Each slot gets a real menu item, priced once at fridge-creation
+		// time and reused for every vend of that slot -- see menu.go.
+		slotPriceCents := make(map[string]int, len(slots))
+		initialQty := make(map[string]int, len(slots))
+		for _, slot := range slots {
+			slotPriceCents[slot] = randomMenuItem(rng).randomPriceCents(rng)
+			initialQty[slot] = 20
+		}
+		sim := dispenser.NewSimulator(initialQty)
 		payment := newPaymentGateway()
+
+		// vendTime is read by machine.Now on every publish -- set it right
+		// before each Vend call so events carry the venue-aware simulated
+		// timestamp (see traffic.go) instead of real wall-clock time.
+		var vendTime time.Time
 		machine := &vend.Machine{
 			FridgeID:  fridgeID,
 			Dispenser: sim,
 			Payment:   payment,
 			Publisher: publisher,
+			Now:       func() time.Time { return vendTime },
 		}
 
-		slots := []string{"A1", "A2", "A3", "B1", "B2"}
-		for j := 0; j < *transactionCount; j++ {
+		// Total attempts and their distribution across the day both come
+		// from the fridge's venue type -- see traffic.go.
+		attempts := venueAdjustedAttemptCount(*transactionCount, loc.Vertical, now)
+		timestamps := make([]time.Time, attempts)
+		for a := 0; a < attempts; a++ {
+			h := sampleHour(rng, loc.Vertical, currentHour)
+			ts := todayStart.Add(time.Duration(h)*time.Hour + time.Duration(rng.Intn(3600))*time.Second)
+			if ts.After(now) {
+				ts = now
+			}
+			timestamps[a] = ts
+		}
+		sort.Slice(timestamps, func(a, b int) bool { return timestamps[a].Before(timestamps[b]) })
+
+		for _, ts := range timestamps {
 			slot := slots[rng.Intn(len(slots))]
+			vendTime = ts
 
 			// Occasionally inject a hardware fault before the vend attempt.
-			if rng.Float64() < 0.1 {
+			if rng.Float64() < hardwareFaultInjectRate {
 				injectRandomFault(sim, slot, rng)
 			}
 
-			res := machine.Vend(slot, 350)
+			res := machine.Vend(slot, slotPriceCents[slot])
 			outcomes[res.Outcome]++
 		}
 
@@ -84,7 +119,7 @@ func main() {
 			publisher.Publish(vend.Event{
 				FridgeID:  fridgeID,
 				Type:      vend.EventDoorAnomaly,
-				Timestamp: time.Now(),
+				Timestamp: now,
 				Payload:   map[string]any{"reason": "left_open"},
 			})
 			doorAnomalies++
@@ -165,7 +200,7 @@ type simulatedPaymentGateway struct {
 }
 
 func (p *simulatedPaymentGateway) Authorize(slotID string, amountCents int) (string, error) {
-	if p.rng.Float64() < 0.05 {
+	if p.rng.Float64() < paymentDeclineRate {
 		return "", errors.New("card declined")
 	}
 	p.nextTxn++
@@ -173,7 +208,7 @@ func (p *simulatedPaymentGateway) Authorize(slotID string, amountCents int) (str
 }
 
 func (p *simulatedPaymentGateway) Refund(txnID string) error {
-	if p.rng.Float64() < 0.15 {
+	if p.rng.Float64() < refundFailureRate {
 		return errors.New("payment processor unreachable")
 	}
 	return nil
