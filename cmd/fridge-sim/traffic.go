@@ -95,6 +95,43 @@ func venueAdjustedAttemptCount(base int, vertical string, now time.Time) int {
 	return count
 }
 
+// eventRatePerHour returns a fridge's expected vend attempts per simulated
+// hour, given a target average attempts-per-day (dailyTarget), distributing
+// that daily total across hours proportionally to the venue's
+// hourlyMultiplier shape -- the daemon-mode equivalent of
+// venueAdjustedAttemptCount's one-shot scaling, so a lunch-hour peak still
+// emerges in a continuous stream rather than a fixed batch.
+func eventRatePerHour(dailyTarget int, vertical string, t time.Time) float64 {
+	avg := avgMultiplier(vertical)
+	if avg <= 0 {
+		avg = 1
+	}
+	w := multiplierFor(vertical)[t.Hour()]
+	rate := float64(dailyTarget) / 24 * w / avg * weekendFactor(vertical, t)
+
+	// Floor so a dead-zone hour (e.g. 3am at an Office fridge) still
+	// produces a finite next-event time instead of an effectively-infinite
+	// wait -- matches how real fridges do occasionally see off-hours
+	// activity, just rarely.
+	const minRatePerHour = 0.01
+	if rate < minRatePerHour {
+		rate = minRatePerHour
+	}
+	return rate
+}
+
+// sampleNextInterval draws the gap until this fridge's next simulated vend
+// attempt from an exponential distribution parameterized by the current
+// hour's rate -- an approximation of a non-homogeneous Poisson process (the
+// true rate changes continuously through the day; here it's treated as
+// constant for the duration of the sampled gap). Good enough for a
+// demo-quality traffic pattern, not a claim of statistical rigor.
+func sampleNextInterval(rng *rand.Rand, dailyTarget int, vertical string, from time.Time) time.Duration {
+	rate := eventRatePerHour(dailyTarget, vertical, from)
+	hours := rng.ExpFloat64() / rate
+	return time.Duration(hours * float64(time.Hour))
+}
+
 // sampleHour picks one hour in [0, maxHour] weighted by the venue's hourly
 // multiplier curve, restricted to hours that have already elapsed today so
 // every generated timestamp lands in the past relative to "now" -- this is

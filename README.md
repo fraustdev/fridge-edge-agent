@@ -186,6 +186,53 @@ plausible real fleet instead of synthetic noise:
   at fleet scale, since any single fault permanently marks a fridge faulted
   for this demo's snapshot).
 
+### Daemon mode (v5)
+
+`fridge-sim` was originally a one-shot batch tool: it generated a fixed set
+of "today so far" events, POSTed them, and exited. That meant a dashboard
+left open would look correct right after a run and then decay into
+**everything offline** a few minutes later, once every fridge aged past the
+15-minute silence threshold — the exact failure mode this addendum fixes.
+
+`-daemon` makes `fridge-sim` run indefinitely, continuously generating
+events instead of one fixed batch:
+
+```bash
+go run ./cmd/fridge-sim -daemon -fridges 500 -transactions 40 -speed 60
+```
+
+- **Scheduler.** A single goroutine owns a min-heap (`cmd/fridge-sim/daemon.go`)
+  keyed by each fridge's next scheduled vend time. It pops the earliest due
+  fridge, dispatches that vend attempt to a bounded worker pool (`-workers`,
+  default 16), and — once that worker reports back — draws the fridge's next
+  interval from an exponential distribution parameterized by its
+  venue-aware hourly rate (`eventRatePerHour` in `traffic.go`), so the same
+  lunch-hour-peak/flatter-Airport-baseline shape from the batch-mode
+  addendum above still emerges in a continuous stream. One goroutine owning
+  the heap avoids any locking; the worker pool exists specifically so a
+  burst of due events at a high `-speed` can't fire unbounded concurrent
+  POSTs at the fleet server — SQLite serializes writes, so unbounded
+  concurrency there produces lock-contention errors, not more realistic
+  data. Verified with a 500-fridge run at `-speed 500`: no lock errors, no
+  dropped events.
+- **`-speed`** scales simulated time relative to wall-clock time (default
+  `1.0`). At `-speed 60`, one simulated hour elapses in one real minute —
+  useful for watching a whole day's traffic shape (an office fridge's lunch
+  spike, an airport's travel-window bumps) play out in a few minutes instead
+  of requiring the demo to run for a full real day. All traffic/failure-rate
+  logic is defined in simulated time, so `-speed` doesn't require separately
+  retuning anything from the batch-mode addenda above.
+- **Shutdown.** Ctrl+C (SIGINT/SIGTERM) stops the scheduler from picking up
+  new work, then waits for any already-dispatched vend attempts to finish
+  before exiting — no partial/mid-write events.
+- **Restart resets inventory.** On restart, every simulated fridge's
+  in-memory slot inventory starts full again — the daemon doesn't reload
+  prior state from the fleet server. This is a deliberate simplification
+  (making the simulator's own state durable/resumable is real added
+  complexity a demo doesn't need), not an oversight.
+- Batch mode (no `-daemon`) is unchanged and remains the default; both modes
+  share the same per-fridge setup and `fireVend` event-generation path.
+
 ## HTTP API
 
 | Method | Path | Purpose |

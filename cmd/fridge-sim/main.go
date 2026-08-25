@@ -1,11 +1,16 @@
 // Command fridge-sim spins up N simulated fridges, each reusing the v1
-// dispenser.Simulator + vend.Machine, drives a batch of transactions with a
-// realistic mix of successes and injected failures, and POSTs the resulting
-// events to a running fleet-server. This replaces the v1 CLI demo.
+// dispenser.Simulator + vend.Machine, and drives realistic vend traffic
+// against a running fleet-server. In batch mode (the default) it fires a
+// fixed number of transactions per fridge, spread across today so far, then
+// exits. In daemon mode (-daemon) it runs indefinitely, continuously
+// scheduling new events per fridge's venue-aware traffic rate, so the
+// fleet-server's dashboard reflects an actually-live fleet instead of a
+// single frozen snapshot.
 package main
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -16,32 +21,37 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/signal"
 	"sort"
+	"syscall"
 	"time"
 
-	"github.com/frida/fridge-edge-agent/internal/dispenser"
 	"github.com/frida/fridge-edge-agent/internal/vend"
 )
 
 func main() {
 	var (
 		fridgeCount      = flag.Int("fridges", 10, "number of simulated fridges")
-		transactionCount = flag.Int("transactions", 20, "vend transactions per fridge")
+		transactionCount = flag.Int("transactions", 20, "vend transactions per fridge per run (batch mode) or per simulated day (daemon mode)")
 		serverURL        = flag.String("server", "http://localhost:8080", "fleet-server base URL")
 		seed             = flag.Int64("seed", time.Now().UnixNano(), "random seed")
+		daemon           = flag.Bool("daemon", false, "run indefinitely, continuously generating events instead of one fixed batch")
+		speed            = flag.Float64("speed", 1.0, "daemon mode: simulated-time speed multiplier (e.g. 60 = 1 simulated hour per real minute)")
+		workers          = flag.Int("workers", 16, "daemon mode: max concurrent outbound POSTs to the fleet server")
 	)
 	flag.Parse()
 
-	rng := rand.New(rand.NewSource(*seed))
+	if *daemon && *speed <= 0 {
+		log.Fatalf("-speed must be > 0")
+	}
 
-	var newPaymentGateway func() vend.PaymentGateway
+	var newPaymentGateway func(rng *rand.Rand) vend.PaymentGateway
 	if stripeKey := os.Getenv("STRIPE_SECRET_KEY"); stripeKey != "" {
 		log.Printf("STRIPE_SECRET_KEY set: using real Stripe test-mode API calls for payment authorize/refund")
-		gw := newStripePaymentGateway(stripeKey, rng)
-		newPaymentGateway = func() vend.PaymentGateway { return gw }
+		newPaymentGateway = func(rng *rand.Rand) vend.PaymentGateway { return newStripePaymentGateway(stripeKey, rng) }
 	} else {
 		log.Printf("STRIPE_SECRET_KEY not set: using simulated in-memory payment gateway")
-		newPaymentGateway = func() vend.PaymentGateway { return &simulatedPaymentGateway{rng: rng} }
+		newPaymentGateway = func(rng *rand.Rand) vend.PaymentGateway { return &simulatedPaymentGateway{rng: rng} }
 	}
 
 	publisher := &httpEventPublisher{
@@ -50,50 +60,44 @@ func main() {
 		locations: map[string]location{},
 	}
 
-	var outcomes = map[vend.Outcome]int{}
+	fridges := make([]*fridgeState, *fridgeCount)
+	for i := range fridges {
+		fridges[i] = newFridgeState(i, *seed, publisher, newPaymentGateway)
+	}
+
+	if *daemon {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		runDaemon(ctx, fridges, *transactionCount, *speed, *workers)
+		if publisher.failures > 0 {
+			log.Printf("%d event(s) failed to POST to %s during this run", publisher.failures, *serverURL)
+		}
+		return
+	}
+
+	runBatch(fridges, *transactionCount, publisher)
+}
+
+// runBatch fires a fixed number of transactions per fridge, spread across
+// today-so-far, then returns. This is fridge-sim's original (pre-daemon)
+// behavior, unchanged in substance -- just rebuilt on top of fridgeState so
+// batch and daemon mode share one event-generation path (fireVend).
+func runBatch(fridges []*fridgeState, transactionCount int, publisher *httpEventPublisher) {
+	outcomes := map[vend.Outcome]int{}
 	var doorAnomalies int
 
 	now := time.Now()
 	currentHour := now.Hour()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	slots := []string{"A1", "A2", "A3", "B1", "B2"}
-
-	for i := 0; i < *fridgeCount; i++ {
-		fridgeID := fmt.Sprintf("fridge-%03d", i+1)
-		loc := locationForFridge(fridgeID)
-		publisher.locations[fridgeID] = loc
-
-		// Each slot gets a real menu item, priced once at fridge-creation
-		// time and reused for every vend of that slot -- see menu.go.
-		slotPriceCents := make(map[string]int, len(slots))
-		initialQty := make(map[string]int, len(slots))
-		for _, slot := range slots {
-			slotPriceCents[slot] = randomMenuItem(rng).randomPriceCents(rng)
-			initialQty[slot] = 20
-		}
-		sim := dispenser.NewSimulator(initialQty)
-		payment := newPaymentGateway()
-
-		// vendTime is read by machine.Now on every publish -- set it right
-		// before each Vend call so events carry the venue-aware simulated
-		// timestamp (see traffic.go) instead of real wall-clock time.
-		var vendTime time.Time
-		machine := &vend.Machine{
-			FridgeID:  fridgeID,
-			Dispenser: sim,
-			Payment:   payment,
-			Publisher: publisher,
-			Now:       func() time.Time { return vendTime },
-		}
-
+	for _, fs := range fridges {
 		// Total attempts and their distribution across the day both come
 		// from the fridge's venue type -- see traffic.go.
-		attempts := venueAdjustedAttemptCount(*transactionCount, loc.Vertical, now)
+		attempts := venueAdjustedAttemptCount(transactionCount, fs.loc.Vertical, now)
 		timestamps := make([]time.Time, attempts)
 		for a := 0; a < attempts; a++ {
-			h := sampleHour(rng, loc.Vertical, currentHour)
-			ts := todayStart.Add(time.Duration(h)*time.Hour + time.Duration(rng.Intn(3600))*time.Second)
+			h := sampleHour(fs.rng, fs.loc.Vertical, currentHour)
+			ts := todayStart.Add(time.Duration(h)*time.Hour + time.Duration(fs.rng.Intn(3600))*time.Second)
 			if ts.After(now) {
 				ts = now
 			}
@@ -102,22 +106,13 @@ func main() {
 		sort.Slice(timestamps, func(a, b int) bool { return timestamps[a].Before(timestamps[b]) })
 
 		for _, ts := range timestamps {
-			slot := slots[rng.Intn(len(slots))]
-			vendTime = ts
-
-			// Occasionally inject a hardware fault before the vend attempt.
-			if rng.Float64() < hardwareFaultInjectRate {
-				injectRandomFault(sim, slot, rng)
-			}
-
-			res := machine.Vend(slot, slotPriceCents[slot])
-			outcomes[res.Outcome]++
+			outcomes[fireVend(fs, ts)]++
 		}
 
 		// Occasionally simulate a door-sensor anomaly, independent of vends.
-		if rng.Float64() < 0.3 {
+		if fs.rng.Float64() < 0.3 {
 			publisher.Publish(vend.Event{
-				FridgeID:  fridgeID,
+				FridgeID:  fs.id,
 				Type:      vend.EventDoorAnomaly,
 				Timestamp: now,
 				Payload:   map[string]any{"reason": "left_open"},
@@ -126,14 +121,14 @@ func main() {
 		}
 	}
 
-	log.Printf("simulation complete: %d fridges, %d transactions each", *fridgeCount, *transactionCount)
+	log.Printf("simulation complete: %d fridges, %d transactions each", len(fridges), transactionCount)
 	for outcome, count := range outcomes {
 		log.Printf("  %s: %d", outcome, count)
 	}
 	log.Printf("  door anomalies: %d", doorAnomalies)
 
 	if publisher.failures > 0 {
-		log.Printf("WARNING: %d event(s) failed to POST to %s (is fleet-server running?)", publisher.failures, *serverURL)
+		log.Printf("WARNING: %d event(s) failed to POST to %s (is fleet-server running?)", publisher.failures, publisher.baseURL)
 		os.Exit(1)
 	}
 }
@@ -184,11 +179,6 @@ func locationForFridge(fridgeID string) location {
 	h.Write([]byte(fridgeID))
 	idx := int(h.Sum32() % uint32(len(realLocations)))
 	return realLocations[idx]
-}
-
-func injectRandomFault(sim *dispenser.Simulator, slot string, rng *rand.Rand) {
-	faults := []error{dispenser.ErrJam, dispenser.ErrTimeout, dispenser.ErrSensor}
-	sim.InjectFault(slot, faults[rng.Intn(len(faults))])
 }
 
 // simulatedPaymentGateway stands in for a real payment processor: it
