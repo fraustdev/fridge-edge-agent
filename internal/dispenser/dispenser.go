@@ -86,6 +86,20 @@ func (s *Simulator) Inventory() map[string]int {
 	return out
 }
 
+// Restock sets slotID's remaining quantity back to qty, as if a technician
+// had just refilled it. Restocking a slot ID this Simulator wasn't created
+// with is a no-op -- Restock can only refill an existing slot, never add a
+// new one.
+func (s *Simulator) Restock(slotID string, qty int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.slots[slotID]; !ok {
+		return
+	}
+	s.slots[slotID] = qty
+}
+
 // LowStockSlots returns the slot IDs whose remaining quantity is at or
 // below threshold, sorted is not guaranteed — callers needing stable order
 // should sort the result themselves.

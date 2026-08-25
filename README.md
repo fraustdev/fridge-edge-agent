@@ -225,6 +225,18 @@ go run ./cmd/fridge-sim -daemon -fridges 500 -transactions 40 -speed 60
 - **Shutdown.** Ctrl+C (SIGINT/SIGTERM) stops the scheduler from picking up
   new work, then waits for any already-dispatched vend attempts to finish
   before exiting — no partial/mid-write events.
+- **Traffic-driven restocking.** Once a fridge's total remaining inventory
+  drops to ~20% of capacity, a restock is scheduled a simulated 1-5 hours
+  later (a stand-in for dispatch/travel time) and refills every slot back to
+  full. There's no fixed restock timer — cadence falls entirely out of how
+  fast each fridge actually depletes, so a busy Airport fridge gets
+  restocked far more often than a quiet Education one, without any explicit
+  per-venue rate to tune. This only fixes the simulator's own inventory, on
+  purpose: it does **not** touch `internal/fleet/ingest.go`'s low-stock
+  status derivation, which still latches once a `restock_alert` event fires
+  (a slot hitting fully empty) until a human resolves the alert via
+  `/fleet/alerts/{id}/resolve` — matching how a real "needs restock" alert
+  should work (an ops action closes it, not a later successful vend).
 - **Restart resets inventory.** On restart, every simulated fridge's
   in-memory slot inventory starts full again — the daemon doesn't reload
   prior state from the fleet server. This is a deliberate simplification

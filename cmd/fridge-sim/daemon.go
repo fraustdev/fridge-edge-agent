@@ -8,11 +8,20 @@ import (
 	"time"
 )
 
-// schedItem is one fridge's next scheduled (simulated-time) vend attempt.
+// schedItem is one fridge's next scheduled (simulated-time) action: either
+// a vend attempt or a restock visit.
 type schedItem struct {
-	idx int
-	due time.Time
+	idx  int
+	due  time.Time
+	kind schedKind
 }
+
+type schedKind int
+
+const (
+	schedVend schedKind = iota
+	schedRestock
+)
 
 type schedHeap []schedItem
 
@@ -65,15 +74,26 @@ func runDaemon(ctx context.Context, fridges []*fridgeState, dailyTarget int, spe
 	var h schedHeap
 	for i, fs := range fridges {
 		due := simClock().Add(sampleNextInterval(fs.rng, dailyTarget, fs.loc.Vertical, simClock()))
-		heap.Push(&h, schedItem{idx: i, due: due})
+		heap.Push(&h, schedItem{idx: i, due: due, kind: schedVend})
 	}
 
 	log.Printf("daemon mode: %d fridges, speed=%.1fx, %d workers -- Ctrl+C to stop", len(fridges), speed, workers)
 
+	// requeue runs after a vend attempt completes: it schedules that
+	// fridge's next vend, and separately -- if the fridge has run low
+	// enough -- a restock visit some simulated dispatch delay later. A
+	// restock is scheduled independently of the regular vend cadence, so
+	// it doesn't distort the venue-aware traffic pattern.
 	requeue := func(t schedItem) {
 		fs := fridges[t.idx]
 		next := t.due.Add(sampleNextInterval(fs.rng, dailyTarget, fs.loc.Vertical, t.due))
-		heap.Push(&h, schedItem{idx: t.idx, due: next})
+		heap.Push(&h, schedItem{idx: t.idx, due: next, kind: schedVend})
+
+		if needsRestock(fs) {
+			fs.restockPending = true
+			delay := time.Duration((1 + fs.rng.Float64()*4) * float64(time.Hour))
+			heap.Push(&h, schedItem{idx: t.idx, due: t.due.Add(delay), kind: schedRestock})
+		}
 	}
 
 loop:
@@ -114,6 +134,14 @@ loop:
 		}
 
 		item := heap.Pop(&h).(schedItem)
+		if item.kind == schedRestock {
+			fs := fridges[item.idx]
+			restockFridge(fs)
+			fs.restockPending = false
+			log.Printf("restocked %s (%s)", fs.id, fs.loc.Vertical)
+			continue
+		}
+
 		select {
 		case taskCh <- item:
 		case <-ctx.Done():
