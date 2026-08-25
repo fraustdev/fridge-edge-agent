@@ -65,6 +65,13 @@ type EventPublisher interface {
 	Publish(Event)
 }
 
+// lowStockThreshold is the remaining-quantity threshold (an absolute
+// count, not a percentage of a slot's original capacity -- the Dispenser
+// interface has no notion of that) at or below which a slot is considered
+// running low. Distinct from and earlier-firing than EventRestockAlert's
+// other trigger, a slot hitting exactly zero (see reportDispenseFault).
+const lowStockThreshold = 3
+
 // Result is the outcome of a single vend attempt.
 type Result struct {
 	Outcome Outcome
@@ -118,6 +125,8 @@ func (m *Machine) Vend(slotID string, amountCents int) Result {
 		return res
 	}
 
+	wasLow := isLowStock(m.Dispenser, slotID)
+
 	dispenseErr := m.Dispenser.Dispense(slotID)
 	if dispenseErr == nil {
 		res := Result{Outcome: OutcomeSuccess, TxnID: txnID}
@@ -130,6 +139,13 @@ func (m *Machine) Vend(slotID string, amountCents int) Result {
 				"amountCents": amountCents,
 			},
 		})
+		if !wasLow && isLowStock(m.Dispenser, slotID) {
+			m.publish(Event{
+				SlotID:  slotID,
+				Type:    EventRestockAlert,
+				Payload: map[string]any{"reason": "running_low"},
+			})
+		}
 		return res
 	}
 
@@ -159,6 +175,17 @@ func (m *Machine) Vend(slotID string, amountCents int) Result {
 	})
 
 	return res
+}
+
+// isLowStock reports whether slotID is currently at or below
+// lowStockThreshold.
+func isLowStock(d dispenser.Dispenser, slotID string) bool {
+	for _, id := range d.LowStockSlots(lowStockThreshold) {
+		if id == slotID {
+			return true
+		}
+	}
+	return false
 }
 
 // reportDispenseFault classifies a dispense error into the event type ops

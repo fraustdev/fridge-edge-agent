@@ -31,9 +31,18 @@ func main() {
 	}
 	defer store.Close()
 
-	dispatcher := fleet.NewDispatcher(store, fleet.DefaultTechRoster())
-	summarizer := copilot.NewSummarizer()
+	mux := newMux(store, fleet.NewDispatcher(store, fleet.DefaultTechRoster()), copilot.NewSummarizer())
 
+	log.Printf("fleet-server listening on %s (db: %s)", addr, dbPath)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// newMux wires every route the same way for both the real server (main,
+// above) and the smoke test (smoke_test.go) -- kept as one function so the
+// two can never drift apart.
+func newMux(store fleet.Store, dispatcher *fleet.Dispatcher, summarizer *copilot.Summarizer) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", dashboardHandler)
 	mux.HandleFunc("/static/leaflet.js", leafletJSHandler)
@@ -46,11 +55,7 @@ func main() {
 	mux.Handle("/fleet/alerts/", fleet.NewAlertsHandler(store, dispatcher))
 	mux.Handle("/fleet/techs", fleet.NewTechsHandler(dispatcher))
 	mux.HandleFunc("/fleet/copilot/summary", copilotSummaryHandler(store, summarizer))
-
-	log.Printf("fleet-server listening on %s (db: %s)", addr, dbPath)
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatal(err)
-	}
+	return mux
 }
 
 // copilotSummaryHandler summarizes the most recent fleet-wide events. It's

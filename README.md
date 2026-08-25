@@ -232,11 +232,14 @@ go run ./cmd/fridge-sim -daemon -fridges 500 -transactions 40 -speed 60
   fast each fridge actually depletes, so a busy Airport fridge gets
   restocked far more often than a quiet Education one, without any explicit
   per-venue rate to tune. This only fixes the simulator's own inventory, on
-  purpose: it does **not** touch `internal/fleet/ingest.go`'s low-stock
-  status derivation, which still latches once a `restock_alert` event fires
-  (a slot hitting fully empty) until a human resolves the alert via
-  `/fleet/alerts/{id}/resolve` — matching how a real "needs restock" alert
-  should work (an ops action closes it, not a later successful vend).
+  purpose: `internal/fleet/ingest.go`'s low-stock status derivation still
+  latches once a `restock_alert` event fires (a slot running low or hitting
+  fully empty — see `internal/vend`'s `lowStockThreshold`) and stays
+  latched for as long as that alert is open, even across later successful
+  vends — a fridge only heals back to healthy once a human resolves the
+  alert via `/fleet/alerts/{id}/resolve`, matching how a real "needs
+  restock" alert should work (an ops action closes it, not just a later
+  successful vend masking it).
 - **Restart resets inventory.** On restart, every simulated fridge's
   in-memory slot inventory starts full again — the daemon doesn't reload
   prior state from the fleet server. This is a deliberate simplification
@@ -462,8 +465,13 @@ from an ordinary failure in the published event.
 - Real hardware drivers — still simulated.
 - Auth / production security hardening — the dashboard and API are both
   unauthenticated, fine for a local demo, not for a real deployment.
-- Sophisticated dispatch optimization — round-robin assignment is a
-  deliberate stand-in for a real routing algorithm.
+- Sophisticated dispatch optimization — candidates are scored on a simple
+  weighted sum of haversine-based travel time, current workload, and a
+  venue-tier weighting (see "Technician tracking" above); round-robin no
+  longer exists in the codebase, but this is still a deliberate stand-in
+  for a real routing algorithm, not a claim of production-grade logistics.
+  A real routing API (e.g. OSRM) in place of the flat average-speed
+  travel-time estimate remains a documented, unbuilt upgrade path.
 - Postgres / cloud deployment — SQLite is the demo store; Postgres is a
   documented upgrade path (swap the `fleet.Store` implementation), not
   built here given the timeline.

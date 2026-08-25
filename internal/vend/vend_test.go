@@ -181,6 +181,60 @@ func TestMachine_Vend_RefundPending_NeverLooksLikeAnOrdinaryFailure(t *testing.T
 	}
 }
 
+// TestMachine_Vend_RunningLowFiresOnceOnThresholdCrossing exercises
+// dispenser.LowStockSlots' wiring into the vend flow: a restock_alert with
+// reason "running_low" must fire the moment a successful dispense brings a
+// slot to or below lowStockThreshold, but not again on every subsequent
+// dispense while it stays low -- only once, on the crossing.
+func TestMachine_Vend_RunningLowFiresOnceOnThresholdCrossing(t *testing.T) {
+	// lowStockThreshold is 3; start at 4 so the first dispense (4 -> 3)
+	// crosses it and the second (3 -> 2) doesn't cross again.
+	sim := dispenser.NewSimulator(map[string]int{"A1": 4})
+	pay := &fakePayment{}
+	pub := &recordingPublisher{}
+	m := newMachine(sim, pay, pub)
+
+	res := m.Vend("A1", 350)
+	if res.Outcome != OutcomeSuccess {
+		t.Fatalf("first Vend() Outcome = %v, want success", res.Outcome)
+	}
+	wantFirst := []EventType{EventVendCompleted, EventRestockAlert}
+	if got := pub.types(); !equalEventTypes(got, wantFirst) {
+		t.Fatalf("events after crossing dispense = %v, want %v", got, wantFirst)
+	}
+	var runningLow *Event
+	for i := range pub.events {
+		if pub.events[i].Type == EventRestockAlert {
+			runningLow = &pub.events[i]
+		}
+	}
+	if runningLow == nil || runningLow.Payload["reason"] != "running_low" {
+		t.Fatalf("expected a restock_alert with reason=running_low, got %+v", runningLow)
+	}
+
+	pub.events = nil // reset to isolate the second dispense's events
+	res = m.Vend("A1", 350)
+	if res.Outcome != OutcomeSuccess {
+		t.Fatalf("second Vend() Outcome = %v, want success", res.Outcome)
+	}
+	wantSecond := []EventType{EventVendCompleted}
+	if got := pub.types(); !equalEventTypes(got, wantSecond) {
+		t.Fatalf("events after already-low dispense = %v, want %v (no duplicate running_low alert)", got, wantSecond)
+	}
+}
+
+func equalEventTypes(a, b []EventType) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestMachine_Vend_UnknownSlot(t *testing.T) {
 	sim := dispenser.NewSimulator(map[string]int{"A1": 5})
 	pay := &fakePayment{}

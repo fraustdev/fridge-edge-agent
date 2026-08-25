@@ -94,15 +94,28 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // updateFridgeState upserts the fridge's current record, deriving its
 // health status from the event. Status derivation is deliberately simple:
 // a hardware fault or a charged-but-no-item vend always marks the fridge
-// faulted; a fault or low-stock state is not silently cleared by later
-// events (that requires an explicit restock/repair, which this demo does
-// not model) except a subsequent clean vend success.
+// faulted; a fault or low-stock state is not silently cleared by an
+// ordinary later event -- except a clean vend success, which heals the
+// fridge back to healthy, but only when there's no open alert for it. An
+// open alert (e.g. an unresolved hardware fault someone hasn't gotten to
+// yet) means a single successful vend shouldn't mask that it's still
+// broken -- healing only happens once the alert itself has been resolved.
 func (h *IngestHandler) updateFridgeState(ctx context.Context, e Event, loc *Location) error {
 	current, err := h.Store.GetFridge(ctx, e.FridgeID)
 	if err != nil && err != ErrNotFound {
 		return err
 	}
-	status := computeStatus(current.Status, e)
+
+	hasOpenAlert := false
+	if outcome, _ := e.Payload["outcome"].(string); e.Type == EventVendCompleted && outcome == "success" {
+		openAlerts, err := h.Store.ListOpenAlertsForFridge(ctx, e.FridgeID)
+		if err != nil {
+			return err
+		}
+		hasOpenAlert = len(openAlerts) > 0
+	}
+
+	status := computeStatus(current.Status, e, hasOpenAlert)
 
 	return h.Store.UpsertFridge(ctx, Fridge{
 		ID:          e.FridgeID,
@@ -112,7 +125,7 @@ func (h *IngestHandler) updateFridgeState(ctx context.Context, e Event, loc *Loc
 	})
 }
 
-func computeStatus(current FridgeStatus, e Event) FridgeStatus {
+func computeStatus(current FridgeStatus, e Event, hasOpenAlert bool) FridgeStatus {
 	switch e.Type {
 	case EventHardwareFault:
 		return StatusFaulted
@@ -126,6 +139,9 @@ func computeStatus(current FridgeStatus, e Event) FridgeStatus {
 		switch outcome {
 		case "success":
 			if current == "" {
+				return StatusHealthy
+			}
+			if (current == StatusFaulted || current == StatusLowStock) && !hasOpenAlert {
 				return StatusHealthy
 			}
 			return current

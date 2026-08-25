@@ -23,6 +23,7 @@ var (
 type Dispenser interface {
 	Dispense(slotID string) error
 	Inventory() map[string]int
+	LowStockSlots(threshold int) []string
 }
 
 // Simulator is an in-memory Dispenser used in place of real hardware.
