@@ -31,7 +31,7 @@ func main() {
 	}
 	defer store.Close()
 
-	dispatcher := fleet.NewDispatcher(store, []string{"tech-alice", "tech-bob", "tech-carol"})
+	dispatcher := fleet.NewDispatcher(store, fleet.DefaultTechRoster())
 	summarizer := copilot.NewSummarizer()
 
 	mux := http.NewServeMux()
@@ -44,6 +44,7 @@ func main() {
 	mux.Handle("/fleet/fridges/", fleet.NewFridgeDetailHandler(store))
 	mux.Handle("/fleet/alerts", fleet.NewAlertsHandler(store, dispatcher))
 	mux.Handle("/fleet/alerts/", fleet.NewAlertsHandler(store, dispatcher))
+	mux.Handle("/fleet/techs", fleet.NewTechsHandler(dispatcher))
 	mux.HandleFunc("/fleet/copilot/summary", copilotSummaryHandler(store, summarizer))
 
 	log.Printf("fleet-server listening on %s (db: %s)", addr, dbPath)

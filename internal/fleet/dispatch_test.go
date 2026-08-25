@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+func testTech(id string, role TechRole, lat, lng float64) Tech {
+	return Tech{ID: id, Name: id, Role: role, HomeLat: lat, HomeLng: lng}
+}
+
 func TestClassifySeverity(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -64,7 +68,7 @@ func TestClassifySeverity(t *testing.T) {
 
 func TestDispatcher_TriageEvent_NoAlertForOrdinaryEvent(t *testing.T) {
 	s := newTestStore(t)
-	d := NewDispatcher(s, []string{"tech-1"})
+	d := NewDispatcher(s, []Tech{testTech("tech-1", RoleServiceTech, 0, 0)})
 
 	alert, err := d.TriageEvent(context.Background(), Event{
 		FridgeID: "f1", Type: EventVendCompleted, Payload: map[string]any{"outcome": "success"},
@@ -79,7 +83,7 @@ func TestDispatcher_TriageEvent_NoAlertForOrdinaryEvent(t *testing.T) {
 
 func TestDispatcher_FullLifecycle_OpenAssignResolve(t *testing.T) {
 	s := newTestStore(t)
-	d := NewDispatcher(s, []string{"tech-1", "tech-2"})
+	d := NewDispatcher(s, []Tech{testTech("tech-1", RoleServiceTech, 0, 0), testTech("tech-2", RoleServiceTech, 0, 0)})
 	ctx := context.Background()
 
 	alert, err := d.TriageEvent(ctx, Event{
@@ -119,9 +123,14 @@ func TestDispatcher_FullLifecycle_OpenAssignResolve(t *testing.T) {
 	}
 }
 
-func TestDispatcher_Assign_RoundRobin(t *testing.T) {
+// Round-robin is no longer a distinct algorithm -- but with two otherwise
+// identical ServiceTechs (same position, same tier) and no travel-time
+// difference (the fridge has no location), pure workload-balancing scoring
+// reproduces the same alternation a dedicated round-robin would have
+// produced, tie-broken by roster order.
+func TestDispatcher_Assign_WorkloadBalancingAlternatesEvenlyMatchedTechs(t *testing.T) {
 	s := newTestStore(t)
-	d := NewDispatcher(s, []string{"tech-1", "tech-2"})
+	d := NewDispatcher(s, []Tech{testTech("tech-1", RoleServiceTech, 0, 0), testTech("tech-2", RoleServiceTech, 0, 0)})
 	ctx := context.Background()
 
 	var assignees []string
@@ -140,23 +149,66 @@ func TestDispatcher_Assign_RoundRobin(t *testing.T) {
 	want := []string{"tech-1", "tech-2", "tech-1", "tech-2"}
 	for i, w := range want {
 		if assignees[i] != w {
-			t.Fatalf("assignees = %v, want round-robin %v", assignees, want)
+			t.Fatalf("assignees = %v, want alternating %v", assignees, want)
 		}
 	}
 }
 
-func TestDispatcher_Assign_NoTechsConfigured(t *testing.T) {
+func TestDispatcher_Assign_NoRoleMatchedTech_MarksBlocked(t *testing.T) {
 	s := newTestStore(t)
 	d := NewDispatcher(s, nil)
 	ctx := context.Background()
 
 	alert, _ := d.TriageEvent(ctx, Event{FridgeID: "f1", Type: EventHardwareFault, Timestamp: time.Now()})
-	if _, err := d.Assign(ctx, alert.ID); err == nil {
-		t.Fatal("Assign() with no techs configured should return an error")
+	result, err := d.Assign(ctx, alert.ID)
+	if err != nil {
+		t.Fatalf("Assign() error: %v", err)
+	}
+	if result.Status != AlertOpen {
+		t.Fatalf("Status = %v, want still open (blocked, not assigned)", result.Status)
+	}
+	if result.BlockedReason == "" {
+		t.Fatal("BlockedReason is empty, want a reason explaining no tech is configured")
 	}
 }
 
-func TestDispatcher_Assign_AccessConstrained_NoEligibleTech_MarksBlocked(t *testing.T) {
+func TestDispatcher_Assign_RoutesByRole(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	d := NewDispatcher(s, []Tech{
+		testTech("tech-driver", RoleDriver, 0, 0),
+		testTech("tech-svc", RoleServiceTech, 0, 0),
+	})
+
+	cases := []struct {
+		name     string
+		event    Event
+		wantTech string
+	}{
+		{"restock routes to Driver", Event{FridgeID: "f1", Type: EventRestockAlert, Timestamp: time.Now()}, "tech-driver"},
+		{"hardware fault routes to ServiceTech", Event{FridgeID: "f1", Type: EventHardwareFault, Timestamp: time.Now()}, "tech-svc"},
+		{"door anomaly routes to ServiceTech", Event{FridgeID: "f1", Type: EventDoorAnomaly, Timestamp: time.Now()}, "tech-svc"},
+		{"charged-no-item routes to ServiceTech", Event{FridgeID: "f1", Type: EventVendCompleted, Payload: map[string]any{"outcome": "refund_pending"}, Timestamp: time.Now()}, "tech-svc"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			alert, err := d.TriageEvent(ctx, c.event)
+			if err != nil || alert == nil {
+				t.Fatalf("TriageEvent() error: %v, alert: %v", err, alert)
+			}
+			assigned, err := d.Assign(ctx, alert.ID)
+			if err != nil {
+				t.Fatalf("Assign() error: %v", err)
+			}
+			if assigned.AssignedTo != c.wantTech {
+				t.Fatalf("AssignedTo = %q, want %q", assigned.AssignedTo, c.wantTech)
+			}
+		})
+	}
+}
+
+func TestDispatcher_Assign_AccessConstrained_Assigned(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
@@ -167,8 +219,93 @@ func TestDispatcher_Assign_AccessConstrained_NoEligibleTech_MarksBlocked(t *test
 		t.Fatalf("UpsertFridge() error: %v", err)
 	}
 
-	// tech-bob is not cleared for Airport per defaultClearances.
-	d := NewDispatcher(s, []string{"tech-bob"})
+	// tech-alice IS cleared for Airport per defaultClearances.
+	d := NewDispatcher(s, []Tech{testTech("tech-alice", RoleServiceTech, 41.97, -87.9)})
+	alert, err := d.TriageEvent(ctx, Event{FridgeID: "f-airport", Type: EventHardwareFault, Timestamp: time.Now()})
+	if err != nil || alert == nil {
+		t.Fatalf("TriageEvent() error: %v, alert: %v", err, alert)
+	}
+
+	result, err := d.Assign(ctx, alert.ID)
+	if err != nil {
+		t.Fatalf("Assign() error: %v", err)
+	}
+	if result.Status != AlertAssigned {
+		t.Fatalf("Status = %v, want assigned", result.Status)
+	}
+	if result.AssignedTo != "tech-alice" {
+		t.Fatalf("AssignedTo = %q, want tech-alice", result.AssignedTo)
+	}
+	if result.AccessState != AccessAssigned {
+		t.Fatalf("AccessState = %v, want assigned", result.AccessState)
+	}
+	if result.BlockedReason != "" {
+		t.Fatalf("BlockedReason = %q, want empty once assigned", result.BlockedReason)
+	}
+}
+
+func TestDispatcher_Assign_AccessConstrained_EscortRequired(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if err := s.UpsertFridge(ctx, Fridge{
+		ID: "f-airport", Status: StatusHealthy, LastEventAt: time.Now(),
+		Location: &Location{City: "Dallas", State: "TX", Vertical: "Airport", Lat: 32.9, Lng: -97.04},
+	}); err != nil {
+		t.Fatalf("UpsertFridge() error: %v", err)
+	}
+
+	// tech-svc is role-matched (ServiceTech) but not individually cleared
+	// for Airport; tech-driver IS cleared for Airport but can't do
+	// ServiceTech work themself -- they can only escort tech-svc in.
+	d := NewDispatcher(s, []Tech{
+		testTech("tech-svc", RoleServiceTech, 32.9, -97.0),
+		testTech("tech-driver", RoleDriver, 32.9, -97.0),
+	})
+	d.Clearances = map[string]map[string]bool{
+		"tech-svc":    {},
+		"tech-driver": {"Airport": true},
+	}
+
+	alert, err := d.TriageEvent(ctx, Event{FridgeID: "f-airport", Type: EventHardwareFault, Timestamp: time.Now()})
+	if err != nil || alert == nil {
+		t.Fatalf("TriageEvent() error: %v, alert: %v", err, alert)
+	}
+
+	result, err := d.Assign(ctx, alert.ID)
+	if err != nil {
+		t.Fatalf("Assign() error: %v", err)
+	}
+	if result.Status != AlertAssigned {
+		t.Fatalf("Status = %v, want assigned (with an escort)", result.Status)
+	}
+	if result.AccessState != AccessEscortRequired {
+		t.Fatalf("AccessState = %v, want escort_required", result.AccessState)
+	}
+	if result.AssignedTo != "tech-svc" {
+		t.Fatalf("AssignedTo = %q, want the role-matched tech-svc", result.AssignedTo)
+	}
+	if result.EscortTech != "tech-driver" {
+		t.Fatalf("EscortTech = %q, want tech-driver", result.EscortTech)
+	}
+}
+
+func TestDispatcher_Assign_AccessConstrained_Blocked(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if err := s.UpsertFridge(ctx, Fridge{
+		ID: "f-airport", Status: StatusHealthy, LastEventAt: time.Now(),
+		Location: &Location{City: "Dallas", State: "TX", Vertical: "Airport", Lat: 32.9, Lng: -97.04},
+	}); err != nil {
+		t.Fatalf("UpsertFridge() error: %v", err)
+	}
+
+	// tech-svc is role-matched but nobody in the roster (any role) is
+	// cleared for Airport -- no escort is possible either.
+	d := NewDispatcher(s, []Tech{testTech("tech-svc", RoleServiceTech, 32.9, -97.0)})
+	d.Clearances = map[string]map[string]bool{"tech-svc": {}}
+
 	alert, err := d.TriageEvent(ctx, Event{FridgeID: "f-airport", Type: EventHardwareFault, Timestamp: time.Now()})
 	if err != nil || alert == nil {
 		t.Fatalf("TriageEvent() error: %v, alert: %v", err, alert)
@@ -185,40 +322,10 @@ func TestDispatcher_Assign_AccessConstrained_NoEligibleTech_MarksBlocked(t *test
 		t.Fatalf("AssignedTo = %q, want empty", result.AssignedTo)
 	}
 	if result.BlockedReason == "" {
-		t.Fatal("BlockedReason is empty, want a reason explaining no eligible tech")
+		t.Fatal("BlockedReason is empty, want a reason explaining no tech or escort is available")
 	}
-}
-
-func TestDispatcher_Assign_AccessConstrained_EligibleTechFound(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-
-	if err := s.UpsertFridge(ctx, Fridge{
-		ID: "f-airport", Status: StatusHealthy, LastEventAt: time.Now(),
-		Location: &Location{City: "Chicago", State: "IL", Vertical: "Airport", Lat: 41.97, Lng: -87.9},
-	}); err != nil {
-		t.Fatalf("UpsertFridge() error: %v", err)
-	}
-
-	// tech-alice IS cleared for Airport per defaultClearances.
-	d := NewDispatcher(s, []string{"tech-alice"})
-	alert, err := d.TriageEvent(ctx, Event{FridgeID: "f-airport", Type: EventHardwareFault, Timestamp: time.Now()})
-	if err != nil || alert == nil {
-		t.Fatalf("TriageEvent() error: %v, alert: %v", err, alert)
-	}
-
-	result, err := d.Assign(ctx, alert.ID)
-	if err != nil {
-		t.Fatalf("Assign() error: %v", err)
-	}
-	if result.Status != AlertAssigned {
-		t.Fatalf("Status = %v, want assigned", result.Status)
-	}
-	if result.AssignedTo != "tech-alice" {
-		t.Fatalf("AssignedTo = %q, want tech-alice", result.AssignedTo)
-	}
-	if result.BlockedReason != "" {
-		t.Fatalf("BlockedReason = %q, want empty once assigned", result.BlockedReason)
+	if result.AccessState != "" {
+		t.Fatalf("AccessState = %v, want empty (access was never resolved)", result.AccessState)
 	}
 }
 
@@ -240,7 +347,7 @@ func TestDispatcher_AssignNext_PrioritizesHighTierVenueOverFIFO(t *testing.T) {
 		t.Fatalf("UpsertFridge(f-airport) error: %v", err)
 	}
 
-	d := NewDispatcher(s, []string{"tech-carol"}) // cleared for everything
+	d := NewDispatcher(s, []Tech{testTech("tech-carol", RoleServiceTech, 32.9, -97.04)}) // cleared for everything per defaultClearances
 	d.Now = func() time.Time { return base }
 
 	// Office alert opened first (older); airport alert opened second
@@ -299,10 +406,12 @@ func TestDispatcher_AssignNext_SkipsBlockedCandidateForNextBest(t *testing.T) {
 		t.Fatalf("UpsertFridge(f-office) error: %v", err)
 	}
 
-	// tech-bob is cleared for Office but not Airport -- the higher-priority
-	// airport alert can't be assigned to anyone, so AssignNext should fall
-	// through to the office alert instead of giving up.
-	d := NewDispatcher(s, []string{"tech-bob"})
+	// tech-bob is cleared for Office but not Airport (nor is anyone else in
+	// this roster) -- the higher-priority airport alert can't be assigned
+	// or escorted, so AssignNext should fall through to the office alert
+	// instead of giving up.
+	d := NewDispatcher(s, []Tech{testTech("tech-bob", RoleServiceTech, 41.88, -87.63)})
+	d.Clearances = map[string]map[string]bool{"tech-bob": {"Office": true}}
 	d.Now = func() time.Time { return now }
 
 	airportAlert, err := d.TriageEvent(ctx, Event{FridgeID: "f-airport", Type: EventHardwareFault, Timestamp: now})
@@ -332,4 +441,146 @@ func TestDispatcher_AssignNext_SkipsBlockedCandidateForNextBest(t *testing.T) {
 	if blocked.Status != AlertOpen || blocked.BlockedReason == "" {
 		t.Fatalf("airport alert = %+v, want still open with a blocked reason", blocked)
 	}
+}
+
+func TestDispatcher_Assign_SetsAssignmentScore(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	d := NewDispatcher(s, []Tech{testTech("tech-1", RoleServiceTech, 0, 0)})
+
+	alert, err := d.TriageEvent(ctx, Event{FridgeID: "f1", Type: EventHardwareFault, Timestamp: time.Now()})
+	if err != nil || alert == nil {
+		t.Fatalf("TriageEvent() error: %v, alert: %v", err, alert)
+	}
+	assigned, err := d.Assign(ctx, alert.ID)
+	if err != nil {
+		t.Fatalf("Assign() error: %v", err)
+	}
+	if assigned.AssignmentScore == nil {
+		t.Fatal("AssignmentScore is nil, want a score recorded for the winning candidate")
+	}
+}
+
+func TestDispatcher_TechPosition_MovesTowardAssignedFridge(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	const fridgeLat, fridgeLng = 32.7767, -96.7970
+	if err := s.UpsertFridge(ctx, Fridge{
+		ID: "f1", Status: StatusHealthy, LastEventAt: time.Now(),
+		Location: &Location{City: "Dallas", State: "TX", Vertical: "Office", Lat: fridgeLat, Lng: fridgeLng},
+	}); err != nil {
+		t.Fatalf("UpsertFridge() error: %v", err)
+	}
+
+	tech := testTech("tech-1", RoleServiceTech, 41.8781, -87.6298) // Chicago -- far from the fridge
+	d := NewDispatcher(s, []Tech{tech})
+	start := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	d.Now = func() time.Time { return start }
+
+	alert, err := d.TriageEvent(ctx, Event{FridgeID: "f1", Type: EventHardwareFault, Timestamp: start})
+	if err != nil || alert == nil {
+		t.Fatalf("TriageEvent() error: %v, alert: %v", err, alert)
+	}
+	if _, err := d.Assign(ctx, alert.ID); err != nil {
+		t.Fatalf("Assign() error: %v", err)
+	}
+
+	before := techViewByID(t, d, "tech-1")
+	if before.Idle {
+		t.Fatal("tech should be busy immediately after assignment")
+	}
+	if before.ETA == nil || !before.ETA.After(start) {
+		t.Fatal("expected a future ETA")
+	}
+	if before.Lat != tech.HomeLat || before.Lng != tech.HomeLng {
+		t.Fatalf("tech should still be at its origin immediately after assignment, got (%v,%v)", before.Lat, before.Lng)
+	}
+
+	// Partway to the ETA, the tech should have visibly moved closer to the
+	// fridge -- not teleported and not still sitting at the origin.
+	midpoint := start.Add(before.ETA.Sub(start) / 2)
+	d.Now = func() time.Time { return midpoint }
+	mid := techViewByID(t, d, "tech-1")
+	if mid.Lat == tech.HomeLat && mid.Lng == tech.HomeLng {
+		t.Fatal("tech position did not move from its origin at the ETA midpoint")
+	}
+	distAtStart := haversineMiles(tech.HomeLat, tech.HomeLng, fridgeLat, fridgeLng)
+	distAtMid := haversineMiles(mid.Lat, mid.Lng, fridgeLat, fridgeLng)
+	if distAtMid >= distAtStart {
+		t.Fatalf("distance to fridge should have decreased by the ETA midpoint: start=%.1fmi mid=%.1fmi", distAtStart, distAtMid)
+	}
+
+	// At (or after) the ETA, the tech should have arrived.
+	d.Now = func() time.Time { return *before.ETA }
+	arrived := techViewByID(t, d, "tech-1")
+	if arrived.Lat != fridgeLat || arrived.Lng != fridgeLng {
+		t.Fatalf("expected tech to have arrived at the fridge's coordinates, got (%v,%v)", arrived.Lat, arrived.Lng)
+	}
+}
+
+func TestDispatcher_Reassign_LogsOverrideWithPriorAutoAssignment(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	techA := testTech("tech-a", RoleServiceTech, 0, 0)
+	techB := testTech("tech-b", RoleServiceTech, 0, 0)
+	d := NewDispatcher(s, []Tech{techA, techB})
+
+	alert, err := d.TriageEvent(ctx, Event{FridgeID: "f1", Type: EventHardwareFault, Timestamp: time.Now()})
+	if err != nil || alert == nil {
+		t.Fatalf("TriageEvent() error: %v, alert: %v", err, alert)
+	}
+	assigned, err := d.Assign(ctx, alert.ID)
+	if err != nil {
+		t.Fatalf("Assign() error: %v", err)
+	}
+	autoAssignee := assigned.AssignedTo
+	other := "tech-b"
+	if autoAssignee == "tech-b" {
+		other = "tech-a"
+	}
+
+	reassigned, err := d.Reassign(ctx, alert.ID, other, "ops-lead")
+	if err != nil {
+		t.Fatalf("Reassign() error: %v", err)
+	}
+	if reassigned.AssignedTo != other {
+		t.Fatalf("AssignedTo after Reassign = %q, want %q", reassigned.AssignedTo, other)
+	}
+	if reassigned.AssignmentScore == nil {
+		t.Fatal("AssignmentScore is nil after Reassign, want a score recorded for the new tech too")
+	}
+
+	log := d.Reassignments(alert.ID)
+	if len(log) != 1 {
+		t.Fatalf("Reassignments() = %d entries, want 1", len(log))
+	}
+	entry := log[0]
+	if entry.FromTech != autoAssignee {
+		t.Fatalf("FromTech = %q, want the auto-assignment %q (preserved for comparison)", entry.FromTech, autoAssignee)
+	}
+	if entry.ToTech != other {
+		t.Fatalf("ToTech = %q, want %q", entry.ToTech, other)
+	}
+	if entry.By != "ops-lead" {
+		t.Fatalf("By = %q, want ops-lead", entry.By)
+	}
+
+	// Workload should have moved with the reassignment.
+	if v := techViewByID(t, d, autoAssignee); v.Workload != 0 {
+		t.Fatalf("original auto-assignee %s workload = %d, want 0 after being reassigned away", autoAssignee, v.Workload)
+	}
+	if v := techViewByID(t, d, other); v.Workload != 1 {
+		t.Fatalf("new assignee %s workload = %d, want 1", other, v.Workload)
+	}
+}
+
+func techViewByID(t *testing.T, d *Dispatcher, id string) TechView {
+	t.Helper()
+	for _, v := range d.Techs() {
+		if v.ID == id {
+			return v
+		}
+	}
+	t.Fatalf("no tech view found for ID %q", id)
+	return TechView{}
 }

@@ -30,6 +30,8 @@
     --faulted-bg: rgba(240, 85, 92, 0.14);
     --offline: #5b6672;
     --offline-bg: rgba(91, 102, 114, 0.2);
+    --driver: #c792ea;
+    --driver-bg: rgba(199, 146, 234, 0.14);
     --shadow: 0 1px 2px rgba(0,0,0,0.35), 0 8px 20px rgba(0,0,0,0.35);
 
     --font-head: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -150,6 +152,13 @@
   .fridge-marker.low_stock { background: var(--low_stock); }
   .fridge-marker.offline { background: var(--offline); }
   .fridge-marker.faulted { background: var(--faulted); animation: pin-pulse 1.4s infinite; }
+  .tech-marker {
+    width: 12px; height: 12px; border-radius: 3px; transform: rotate(45deg);
+    border: 2px solid var(--bg); box-shadow: 0 0 0 1px rgba(255,255,255,0.25);
+  }
+  .tech-marker.service_tech { background: var(--accent); }
+  .tech-marker.driver { background: var(--driver); }
+  .tech-marker.busy { animation: pin-pulse 1.4s infinite; }
   @keyframes pin-pulse {
     0% { box-shadow: 0 0 0 0 rgba(240,85,92,0.5), 0 0 0 1px rgba(255,255,255,0.15); }
     70% { box-shadow: 0 0 0 8px rgba(240,85,92,0), 0 0 0 1px rgba(255,255,255,0.15); }
@@ -372,6 +381,8 @@
           <span><i style="background:var(--low_stock)"></i> Low stock</span>
           <span><i style="background:var(--faulted)"></i> Faulted (pulsing)</span>
           <span><i style="background:var(--offline)"></i> Offline</span>
+          <span><i style="background:var(--accent);border-radius:2px;transform:rotate(45deg)"></i> Service tech</span>
+          <span><i style="background:var(--driver);border-radius:2px;transform:rotate(45deg)"></i> Driver (pulsing while en route)</span>
         </div>
       </div>
     </div>
@@ -418,7 +429,7 @@
       </div>
       <table>
         <thead>
-          <tr><th>ID</th><th>Fridge</th><th>Slot</th><th>Source</th><th>Severity</th><th>Priority</th><th>Status</th><th>Assigned To</th><th>Created</th><th></th></tr>
+          <tr><th>ID</th><th>Fridge</th><th>Slot</th><th>Source</th><th>Severity</th><th>Priority</th><th>Status</th><th>Access</th><th>Assigned To</th><th title="Weighted assignment score: higher = better candidate (less travel time, less workload), tier-weighted. Negative cost, inverted.">Score</th><th>Created</th><th></th></tr>
         </thead>
         <tbody id="alertRows"></tbody>
       </table>
@@ -511,6 +522,7 @@ function sparklineSVG(values, statusKey) {
 
 let leafletMap = null;
 let markerLayer = null;
+let techMarkerLayer = null;
 
 function initMap() {
   leafletMap = L.map("leafletMap", { worldCopyJump: true }).setView([39.5, -98.35], 4);
@@ -520,6 +532,42 @@ function initMap() {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(leafletMap);
   markerLayer = L.layerGroup().addTo(leafletMap);
+  techMarkerLayer = L.layerGroup().addTo(leafletMap);
+}
+
+// renderTechs plots the live field-tech roster: diamond markers (distinct
+// from fridges' round dots), colored by role, pulsing while en route to a
+// job. Positions are simulated -- see README's v6 section -- not real GPS.
+function renderTechs(techs) {
+  if (!leafletMap) initMap();
+  techMarkerLayer.clearLayers();
+
+  techs.forEach(t => {
+    const icon = L.divIcon({
+      className: "",
+      html: `<div class="tech-marker ${t.role}${t.idle ? "" : " busy"}"></div>`,
+      iconSize: [12, 12],
+      iconAnchor: [6, 6],
+      popupAnchor: [0, -8],
+    });
+    const marker = L.marker([t.lat, t.lng], { icon, zIndexOffset: 1000 });
+    const roleLabel = t.role === "driver" ? "Driver" : "Service Tech";
+    const statusLine = t.idle
+      ? "Idle, parked at depot"
+      : `En route${t.currentAlertId ? " to alert #" + t.currentAlertId : ""}${t.eta ? " &middot; ETA " + new Date(t.eta).toLocaleTimeString() : ""}`;
+    marker.bindPopup(`
+      <div class="popup-title">${t.name}</div>
+      <div class="popup-sub">${roleLabel} &middot; workload ${t.workload}</div>
+      <div class="popup-sub">${statusLine}</div>
+    `);
+    techMarkerLayer.addLayer(marker);
+  });
+}
+
+async function refreshTechs() {
+  const res = await fetch("/fleet/techs");
+  if (!res.ok) return;
+  renderTechs((await res.json()) || []);
 }
 
 function timeAgo(iso) {
@@ -882,11 +930,14 @@ function renderAlertsTable() {
           ? `<span class="badge blocked">blocked</span><span class="blocked-reason">${a.blockedReason}</span>`
           : `<span class="badge ${a.status}">${a.status}</span>`}
       </td>
+      <td>${accessCellHTML(a)}</td>
       <td>${a.assignedTo || "—"}</td>
+      <td class="priority-cell">${a.assignmentScore != null ? a.assignmentScore.toFixed(1) : "—"}</td>
       <td class="mono">${timeAgo(a.createdAt)}</td>
       <td>
         ${a.status === "open" ? `<button class="action" onclick="assignAlert(${a.id})">Assign</button>` : ""}
         ${a.status === "assigned" ? `<button class="action secondary" onclick="resolveAlert(${a.id})">Resolve</button>` : ""}
+        ${a.status !== "resolved" ? `<button class="action secondary" onclick="reassignAlert(${a.id})">Reassign</button>` : ""}
       </td>
     </tr>
   `).join("");
@@ -901,6 +952,20 @@ function renderAlertsTable() {
   }
 }
 
+// accessCellHTML shows the three-state gated-access outcome (see README's
+// v6 section) for access-constrained-venue alerts; alerts at unconstrained
+// venues never get an accessState at all, so they just show a dash.
+function accessCellHTML(a) {
+  if (!a.accessState) return `<span class="mono" style="color:var(--muted)">—</span>`;
+  if (a.accessState === "escort_required") {
+    return `<span class="badge low_stock" title="No individually-cleared tech was available; ${a.escortTech || "another cleared tech"} escorts ${a.assignedTo || "the assigned tech"} in">escort required</span>`;
+  }
+  if (a.accessState === "assigned") {
+    return `<span class="badge healthy">cleared</span>`;
+  }
+  return `<span class="mono">${a.accessState}</span>`;
+}
+
 async function assignAlert(id) {
   await fetch(`/fleet/alerts/${id}/assign`, { method: "POST" });
   refreshAlerts();
@@ -911,6 +976,35 @@ async function resolveAlert(id) {
   await fetch(`/fleet/alerts/${id}/resolve`, { method: "POST" });
   refreshAlerts();
   refreshStatus();
+}
+
+// reassignAlert is a deliberately minimal dispatcher-facing override UI
+// (prompt(), not a modal/dropdown) -- consistent with this dashboard's
+// "no build step, no frontend framework" scope. It lists the live roster
+// (role, workload, idle/busy) so the override is an informed choice, then
+// logs who made it (see GET /fleet/alerts/{id}/reassignments).
+async function reassignAlert(id) {
+  const res = await fetch("/fleet/techs");
+  const techs = (res.ok ? await res.json() : []) || [];
+  const options = techs.map(t =>
+    `${t.id} — ${t.role === "driver" ? "Driver" : "Service Tech"}, workload ${t.workload}${t.idle ? "" : " (busy)"}`
+  ).join("\n");
+  const techId = prompt(`Reassign alert #${id} to which tech?\n\n${options}\n\nEnter a tech ID:`);
+  if (!techId) return;
+  const by = prompt("Your name (for the override log):", "dispatcher") || "dispatcher";
+
+  const resp = await fetch(`/fleet/alerts/${id}/reassign`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ techId: techId.trim(), by }),
+  });
+  if (!resp.ok) {
+    alert("Reassign failed: " + (await resp.text()));
+    return;
+  }
+  refreshAlerts();
+  refreshStatus();
+  refreshTechs();
 }
 
 async function assignNext() {
@@ -1083,8 +1177,10 @@ document.getElementById("clearFilterBtn").addEventListener("click", () => {
 
 refreshStatus();
 refreshAlerts();
+refreshTechs();
 setInterval(refreshStatus, 5000);
 setInterval(refreshAlerts, 5000);
+setInterval(refreshTechs, 5000);
 </script>
 </body>
 </html>

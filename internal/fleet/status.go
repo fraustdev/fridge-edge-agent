@@ -206,9 +206,85 @@ func (h *AlertsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.transition(w, r, strings.TrimSuffix(path, "/assign"), h.Dispatcher.Assign)
 	case strings.HasSuffix(path, "/resolve") && r.Method == http.MethodPost:
 		h.transition(w, r, strings.TrimSuffix(path, "/resolve"), h.Dispatcher.Resolve)
+	case strings.HasSuffix(path, "/reassign") && r.Method == http.MethodPost:
+		h.reassign(w, r, strings.TrimSuffix(path, "/reassign"))
+	case strings.HasSuffix(path, "/reassignments") && r.Method == http.MethodGet:
+		h.reassignments(w, r, strings.TrimSuffix(path, "/reassignments"))
 	default:
 		http.Error(w, "not found", http.StatusNotFound)
 	}
+}
+
+type reassignRequest struct {
+	TechID string `json:"techId"`
+	By     string `json:"by"`
+}
+
+// reassign handles POST /fleet/alerts/{id}/reassign: a dispatcher-facing
+// manual override (see Dispatcher.Reassign). by identifies who made the
+// override; it's free text since this demo has no real user/auth system.
+func (h *AlertsHandler) reassign(w http.ResponseWriter, r *http.Request, idStr string) {
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid alert id", http.StatusBadRequest)
+		return
+	}
+	var req reassignRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.TechID == "" {
+		http.Error(w, "techId is required", http.StatusBadRequest)
+		return
+	}
+	by := req.By
+	if by == "" {
+		by = "dispatcher"
+	}
+
+	alert, err := h.Dispatcher.Reassign(r.Context(), id, req.TechID, by)
+	if err != nil {
+		if err == ErrNotFound {
+			http.Error(w, "alert not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("content-type", "application/json")
+	json.NewEncoder(w).Encode(alert)
+}
+
+// reassignments handles GET /fleet/alerts/{id}/reassignments: the manual-
+// override audit log for one alert (see Dispatcher.Reassignments).
+func (h *AlertsHandler) reassignments(w http.ResponseWriter, r *http.Request, idStr string) {
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid alert id", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("content-type", "application/json")
+	json.NewEncoder(w).Encode(h.Dispatcher.Reassignments(id))
+}
+
+// TechsHandler handles GET /fleet/techs: the live tech roster, with each
+// tech's read-time-computed position and workload (see Dispatcher.Techs).
+type TechsHandler struct {
+	Dispatcher *Dispatcher
+}
+
+func NewTechsHandler(dispatcher *Dispatcher) *TechsHandler {
+	return &TechsHandler{Dispatcher: dispatcher}
+}
+
+func (h *TechsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("content-type", "application/json")
+	json.NewEncoder(w).Encode(h.Dispatcher.Techs())
 }
 
 // alertView adds the current, read-time-computed priority score to an

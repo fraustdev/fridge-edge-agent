@@ -33,6 +33,13 @@ type Store interface {
 	ListOpenAlertsForFridge(ctx context.Context, fridgeID string) ([]Alert, error)
 	UpdateAlertStatus(ctx context.Context, id int64, status AlertStatus, assignedTo string) (Alert, error)
 	SetAlertBlocked(ctx context.Context, id int64, reason string) (Alert, error)
+	// SetAssignment records a (auto or manual) assignment decision: the
+	// tech, the score that decision was based on, and -- for
+	// access-constrained venues -- how access was resolved. Separate from
+	// UpdateAlertStatus because Resolve doesn't need to touch any of these,
+	// and because they should persist as a record of the decision even
+	// after the alert is later resolved.
+	SetAssignment(ctx context.Context, id int64, tech string, score float64, accessState AccessState, escortTech string) (Alert, error)
 
 	Close() error
 }
@@ -115,10 +122,13 @@ CREATE INDEX IF NOT EXISTS idx_alerts_fridge ON alerts(fridge_id, status);
 			}
 		}
 	}
-	// same idea for alerts predating blocked_reason.
-	if _, err := s.db.Exec(`ALTER TABLE alerts ADD COLUMN blocked_reason TEXT`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column name") {
-			return fmt.Errorf("add alerts column %q: %w", "blocked_reason TEXT", err)
+	// same idea for alerts predating blocked_reason, and later
+	// assignment_score/access_state/escort_tech.
+	for _, col := range []string{"blocked_reason TEXT", "assignment_score REAL", "access_state TEXT", "escort_tech TEXT"} {
+		if _, err := s.db.Exec(`ALTER TABLE alerts ADD COLUMN ` + col); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column name") {
+				return fmt.Errorf("add alerts column %q: %w", col, err)
+			}
 		}
 	}
 	return nil
@@ -323,15 +333,16 @@ func (s *SQLiteStore) CreateAlert(ctx context.Context, a Alert) (Alert, error) {
 	return a, nil
 }
 
-const alertColumns = `id, fridge_id, slot_id, source_event, severity, status, assigned_to, blocked_reason, created_at, updated_at`
+const alertColumns = `id, fridge_id, slot_id, source_event, severity, status, assigned_to, blocked_reason, created_at, updated_at, assignment_score, access_state, escort_tech`
 
 func scanAlert(scanner interface {
 	Scan(dest ...any) error
 }) (Alert, error) {
 	var a Alert
-	var slotID, assignedTo, blockedReason sql.NullString
+	var slotID, assignedTo, blockedReason, accessState, escortTech sql.NullString
 	var sourceEvent, severity, status, createdAt, updatedAt string
-	err := scanner.Scan(&a.ID, &a.FridgeID, &slotID, &sourceEvent, &severity, &status, &assignedTo, &blockedReason, &createdAt, &updatedAt)
+	var assignmentScore sql.NullFloat64
+	err := scanner.Scan(&a.ID, &a.FridgeID, &slotID, &sourceEvent, &severity, &status, &assignedTo, &blockedReason, &createdAt, &updatedAt, &assignmentScore, &accessState, &escortTech)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Alert{}, ErrNotFound
@@ -344,6 +355,11 @@ func scanAlert(scanner interface {
 	a.SourceEvent = EventType(sourceEvent)
 	a.Severity = AlertSeverity(severity)
 	a.Status = AlertStatus(status)
+	a.AccessState = AccessState(accessState.String)
+	a.EscortTech = escortTech.String
+	if assignmentScore.Valid {
+		a.AssignmentScore = &assignmentScore.Float64
+	}
 	a.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
 	if err != nil {
 		return Alert{}, fmt.Errorf("parse created_at: %w", err)
@@ -416,6 +432,28 @@ func (s *SQLiteStore) UpdateAlertStatus(ctx context.Context, id int64, status Al
 		string(status), assignedTo, now, id)
 	if err != nil {
 		return Alert{}, fmt.Errorf("update alert: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return Alert{}, fmt.Errorf("rows affected: %w", err)
+	}
+	if n == 0 {
+		return Alert{}, ErrNotFound
+	}
+	return s.GetAlert(ctx, id)
+}
+
+// SetAssignment records an assignment decision (auto or manual): moves the
+// alert to assigned, sets who it's assigned to, and persists the score and
+// access-resolution that decision was based on -- see Dispatcher's
+// commitAssignmentLocked, the only caller.
+func (s *SQLiteStore) SetAssignment(ctx context.Context, id int64, tech string, score float64, accessState AccessState, escortTech string) (Alert, error) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE alerts SET status = ?, assigned_to = ?, blocked_reason = '', assignment_score = ?, access_state = ?, escort_tech = ?, updated_at = ? WHERE id = ?`,
+		string(AlertAssigned), tech, score, string(accessState), escortTech, now, id)
+	if err != nil {
+		return Alert{}, fmt.Errorf("set assignment: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {

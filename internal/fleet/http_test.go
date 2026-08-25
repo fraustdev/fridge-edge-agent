@@ -13,7 +13,7 @@ import (
 
 func TestIngestHandler_ServeHTTP(t *testing.T) {
 	s := newTestStore(t)
-	d := NewDispatcher(s, []string{"tech-1"})
+	d := NewDispatcher(s, []Tech{testTech("tech-1", RoleServiceTech, 0, 0)})
 	h := NewIngestHandler(s, d)
 
 	tests := []struct {
@@ -83,7 +83,7 @@ func TestIngestHandler_ServeHTTP(t *testing.T) {
 
 func TestIngestHandler_WrongMethod(t *testing.T) {
 	s := newTestStore(t)
-	h := NewIngestHandler(s, NewDispatcher(s, []string{"tech-1"}))
+	h := NewIngestHandler(s, NewDispatcher(s, []Tech{testTech("tech-1", RoleServiceTech, 0, 0)}))
 
 	req := httptest.NewRequest(http.MethodGet, "/fleet/events", nil)
 	rec := httptest.NewRecorder()
@@ -133,7 +133,7 @@ func TestStatusHandler_ServeHTTP(t *testing.T) {
 
 func TestFridgeDetailHandler_ServeHTTP(t *testing.T) {
 	s := newTestStore(t)
-	d := NewDispatcher(s, []string{"tech-1"})
+	d := NewDispatcher(s, []Tech{testTech("tech-1", RoleServiceTech, 0, 0)})
 	ctx := context.Background()
 	now := time.Now().UTC()
 
@@ -181,7 +181,7 @@ func TestFridgeDetailHandler_NotFound(t *testing.T) {
 
 func TestAlertsHandler_ListAssignResolve(t *testing.T) {
 	s := newTestStore(t)
-	d := NewDispatcher(s, []string{"tech-1"})
+	d := NewDispatcher(s, []Tech{testTech("tech-1", RoleServiceTech, 0, 0)})
 	h := NewAlertsHandler(s, d)
 	ctx := context.Background()
 

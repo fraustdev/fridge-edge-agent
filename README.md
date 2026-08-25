@@ -254,9 +254,12 @@ go run ./cmd/fridge-sim -daemon -fridges 500 -transactions 40 -speed 60
 | `GET` | `/fleet/status` | Fleet-wide health: healthy / low-stock / faulted / offline counts and per-fridge summary |
 | `GET` | `/fleet/fridges/{id}` | One fridge's recent events, open alerts, and current status |
 | `GET` | `/fleet/alerts?status=` | List alerts, optionally filtered by `open`/`assigned`/`resolved` |
-| `POST` | `/fleet/alerts/{id}/assign` | Assign one alert to the next tech eligible for its venue (round-robin within that eligible subset) |
-| `POST` | `/fleet/alerts/{id}/resolve` | Move an alert to `resolved` |
+| `POST` | `/fleet/alerts/{id}/assign` | Assign one alert to the highest-scoring role-matched, access-eligible tech (see "Technician tracking" below) |
+| `POST` | `/fleet/alerts/{id}/resolve` | Move an alert to `resolved`, freeing its tech back to idle |
+| `POST` | `/fleet/alerts/{id}/reassign` | Manually override the current assignment to a specific tech; logs the prior assignment |
+| `GET` | `/fleet/alerts/{id}/reassignments` | The manual-override audit log for one alert |
 | `POST` | `/fleet/alerts/assign-next` | Assign the single highest-priority open alert fleet-wide (see "Venue-aware dispatch" below) |
+| `GET` | `/fleet/techs` | Live tech roster: role, current position, idle/busy state, workload |
 | `GET` | `/fleet/copilot/summary` | Structured fleet-wide summary (headline, event counts, action items) over recent events |
 
 A fridge is marked **offline** at read time if it hasn't reported an event
@@ -316,9 +319,9 @@ What's here:
   A fridge's tier is shown on its dashboard card; every alert's live
   priority score is shown in the alerts table.
 - **Access-constrained assignment** (`internal/fleet/techs.go`): a small
-  static mock tech roster (`tech-alice`/`tech-bob`/`tech-carol` — not real
-  staffing data) with per-venue clearances. Airport alerts can only go to a
-  cleared tech. If none is available, the alert stays `open` with a
+  mock tech roster with per-venue clearances. Airport alerts can only go to
+  an eligible tech (see v6 below for what "eligible" now means beyond a
+  binary flag). If none is available, the alert stays `open` with a
   visible `blockedReason` instead of silently sitting there indistinguishable
   from a normal open alert (dashboard shows a distinct "blocked" badge).
 - **Peak-window weighting**: Airport-vertical alerts get a priority boost
@@ -333,6 +336,97 @@ What's here:
   human-driven assignment of a specific alert; `assign-next` is the new
   "let the priority model pick" path, and the dashboard's "Auto-assign
   highest priority" button drives it.
+
+## Technician tracking & location-aware dispatch (v6, `internal/fleet/dispatch.go` + `techs.go`)
+
+v3 (above) got access-constrained venues and priority scoring; it still
+assigned round-robin among an undifferentiated tech pool and had no concept
+of where a tech actually was. This addendum replaces that with two
+technician roles, simulated live positions, a three-state gated-access
+model, and a weighted assignment score instead of pure round-robin.
+
+**What's grounded in public information, and what's illustrative** (stated
+plainly, per this project's running policy of not overclaiming):
+
+- **Grounded:** Farmer's Fridge job postings publicly describe two distinct
+  field roles — a route-based Delivery Driver and a separate Service
+  Technician (installs/repairs/PM audits/DOH inspections) — `TechRole`
+  mirrors that real distinction rather than inventing a generic "tech."
+  Airport access control genuinely does work the way the escort model below
+  assumes: SIDA badges are venue-specific and individually earned, and a
+  badged person can escort an unbadged person into a secured area, staying
+  with them continuously.
+- **Illustrative, not real data:** the specific roster (`tech-alice` … 
+  `tech-erin`, `techs.go`), their home-depot coordinates, who's cleared for
+  what, and the scoring weights below. None of Farmer's Fridge's actual
+  staffing, certification, or SLA data is public, and this project doesn't
+  claim otherwise (same caveat as v3's criticality tiers).
+
+What's here:
+
+- **Role-based routing** (`requiredRole` in `dispatch.go`): restock alerts
+  route to a `Driver`; hardware faults, door anomalies, and charged-no-item
+  vend outcomes route to a `ServiceTech`, since those need investigation,
+  not a routine restock.
+- **Three-state gated access** (`AccessState`), replacing v3's binary
+  cleared/not-cleared flag for access-constrained venues:
+  - `assigned` — an individually-cleared, role-matched tech is available.
+  - `escort_required` — no individually-cleared role-matched tech, but a
+    role-matched (uncleared) tech *and* a cleared tech of any role (who can
+    badge them in) both exist. Surfaced distinctly in the alerts table
+    (amber "escort required" badge) rather than folded into a plain
+    "assigned," since it's real coordination overhead, not a normal
+    dispatch.
+  - `blocked` — neither of the above. Same visible `blockedReason` behavior
+    as v3.
+- **Weighted assignment score** (`scoreLocked`), replacing round-robin:
+  every eligible candidate is scored on estimated travel time (haversine
+  distance from the tech's live position to the fridge, converted to
+  minutes via a flat 32mph average-speed assumption — a real routing API
+  like OSRM is a documented upgrade path, not implemented here) and current
+  workload (open assigned-job count), combined as a simple weighted sum —
+  **not** a trained/learned model. A venue's criticality tier shifts the
+  weighting: airport/healthcare alerts weight travel time more heavily
+  (get there fast); low-tier alerts weight workload-balancing more heavily
+  (spread work out). The winning score is persisted on the alert
+  (`assignmentScore`) and shown in the alerts table, so the dispatch
+  decision is demonstrable, not just asserted.
+- **Simulated live tech positions**: idle techs sit at a small set of
+  regional depot coordinates; on assignment, a tech's position
+  interpolates from wherever they currently are toward the fridge's real
+  coordinates, arriving at the ETA computed at assignment time (see
+  `Tech.currentPosition`, computed at read time the same way
+  `effectiveStatus` and `priorityScore` already are elsewhere in this
+  package — no background tick loop needed). **This is simulated movement
+  driven by real wall-clock time, not real GPS data or the fridge daemon's
+  compressed simulated clock** — no location-tracking data exists publicly
+  for this, and tying it to the daemon's own speed multiplier would require
+  fleet-server to infer that multiplier from event arrival timing, adding
+  real fragility for a demo whose realism target is "a dot that visibly
+  moves toward its job," not a full traffic simulation. Tech markers are
+  diamond-shaped on the Fleet Map (round markers are fridges), colored by
+  role, pulsing while en route. Idle techs snap back to their depot on
+  resolve rather than driving back — the return leg isn't modeled.
+- **Manual override** (`POST /fleet/alerts/{id}/reassign`, dashboard
+  "Reassign" button): a dispatcher can pick a different tech than the
+  auto-assignment. The prior assignment is preserved in an audit log
+  (`GET /fleet/alerts/{id}/reassignments` — who, when, from which tech, to
+  which) so the override is comparable against what auto-assign had
+  chosen, even though nothing in this demo currently reads that log besides
+  the API itself.
+- **Scope note on persistence:** the tech roster's live state (position,
+  in-flight job, workload) and the reassignment audit log live in memory on
+  the running `Dispatcher`, not in SQLite — consistent with how this
+  package already treats other single-process demo state (v3's round-robin
+  counter, fridge-sim daemon's in-memory inventory). Neither survives a
+  fleet-server restart. The *decision record* on each alert
+  (`assignmentScore`, `accessState`, `escortTech`) does persist to SQLite,
+  since that's what makes the dispatch decision auditable after the fact.
+- **Not built:** real traffic-aware routing, a learned/ML dispatch model,
+  real tech certification/staffing data, and consent/privacy
+  infrastructure for tracking — all simulated here, so none of that
+  applies, but a real system doing this for real employees would need
+  explicit consent for continuous location tracking.
 
 ## Package layout
 
