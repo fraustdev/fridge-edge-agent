@@ -33,6 +33,16 @@ func main() {
 
 	rng := rand.New(rand.NewSource(*seed))
 
+	var newPaymentGateway func() vend.PaymentGateway
+	if stripeKey := os.Getenv("STRIPE_SECRET_KEY"); stripeKey != "" {
+		log.Printf("STRIPE_SECRET_KEY set: using real Stripe test-mode API calls for payment authorize/refund")
+		gw := newStripePaymentGateway(stripeKey, rng)
+		newPaymentGateway = func() vend.PaymentGateway { return gw }
+	} else {
+		log.Printf("STRIPE_SECRET_KEY not set: using simulated in-memory payment gateway")
+		newPaymentGateway = func() vend.PaymentGateway { return &simulatedPaymentGateway{rng: rng} }
+	}
+
 	publisher := &httpEventPublisher{
 		baseURL:   *serverURL,
 		client:    &http.Client{Timeout: 5 * time.Second},
@@ -48,7 +58,7 @@ func main() {
 		sim := dispenser.NewSimulator(map[string]int{
 			"A1": 20, "A2": 20, "A3": 20, "B1": 20, "B2": 20,
 		})
-		payment := &simulatedPaymentGateway{rng: rng}
+		payment := newPaymentGateway()
 		machine := &vend.Machine{
 			FridgeID:  fridgeID,
 			Dispenser: sim,

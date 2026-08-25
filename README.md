@@ -30,6 +30,7 @@ doesn't claim about Farmer's Fridge's actual current systems.
 | Ops copilot summary | A fleet-wide, not per-fridge, view of what's going on | `internal/copilot` |
 | Fridge-side vend logic (carried over from v1) | The critical property that a customer is never silently charged with no item | `internal/vend`, `internal/dispenser` |
 | Fridge simulator harness | A stand-in for 3,000+ real fridges | `cmd/fridge-sim` |
+| Payment gateway | Real card authorize/refund calls, not a fake success/fail coin flip | `cmd/fridge-sim/stripe_gateway.go` |
 
 ## Running it
 
@@ -127,6 +128,20 @@ Config is via environment variables: `FLEET_SERVER_ADDR` (default `:8080`),
 `FLEET_DB_PATH` (default `fleet.db`), `ANTHROPIC_API_KEY` (optional — the
 copilot endpoint falls back to a deterministic heuristic summary when unset,
 carrying over v1's "no API key needed" fallback behavior).
+
+`cmd/fridge-sim` reads its own `STRIPE_SECRET_KEY` (optional). When set, each
+simulated vend's `Authorize`/`Refund` calls hit the real Stripe API in test
+mode — a genuine `PaymentIntent` create+confirm and, on a successful vend
+that later needs reversing, a genuine `Refund` — instead of an in-memory
+coin flip. Card outcomes come from Stripe's own test payment method tokens
+(`pm_card_visa` succeeds, `pm_card_chargeDeclined` reliably declines, picked
+~5% of the time to mirror real-world decline rates), so success/failure is
+whatever Stripe's test-mode processing actually returns, not something the
+simulator asserts on its own. Unset, it falls back to the original in-memory
+`simulatedPaymentGateway`, so the whole project still runs with zero
+external accounts. Get a test key from the
+[Stripe Dashboard](https://dashboard.stripe.com/test/apikeys) (test mode
+toggle, top-right) — never commit it; export it in your shell instead.
 
 ## HTTP API
 
